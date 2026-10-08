@@ -257,6 +257,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = BreatheRoute;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock your private BreatheRoute journal using Face ID.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally displays recent heart rate and respiratory rate as on-device health context.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With your permission, BreatheRoute monitors sampled air-quality areas during an active walk for optional area-entry awareness. These areas are approximate.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "BreatheRoute uses your location to plan walking routes and record a walk while the app is open.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -293,6 +294,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = BreatheRoute;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock your private BreatheRoute journal using Face ID.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally displays recent heart rate and respiratory rate as on-device health context.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With your permission, BreatheRoute monitors sampled air-quality areas during an active walk for optional area-entry awareness. These areas are approximate.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "BreatheRoute uses your location to plan walking routes and record a walk while the app is open.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

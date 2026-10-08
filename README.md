@@ -24,6 +24,9 @@ Simulator testing must use a locally signed build. Setting `CODE_SIGNING_ALLOWED
 - Current-location, chosen-start and map-area discovery; tappable place pins, details and destination selection.
 - Street, satellite and hybrid maps, terrain elevation, full-screen exploration, recentering and search-after-panning controls.
 - Available alternative walking directions, selectable route overlays and labelled pollution sample circles.
+- Optional openrouteservice walking routes and polygon avoidance, with returned-geometry checks and clear provider attribution.
+- Active-walk area awareness with Core Location regions (Always access) and foreground checks, bounded to eight fresh AQI 3–5 sample areas, overlap suppression and a five-minute alert cooldown.
+- Compare-from-here and explicit remaining-route switching, preserving completed recorded intervals; recommendations apply an extra-time budget and complete-data policy.
 - OpenWeather Air Pollution API client, coordinate sampling and time-weighted dose estimates.
 - Clearly labelled demo routes; missing/stale pollution samples reduce coverage.
 - Foreground GPS walk recording with inaccurate jumps and tracking gaps excluded.
@@ -48,7 +51,7 @@ The UI is SwiftUI with Observation. The small local repository uses a programmat
 
 ## Tests
 
-Run `swift test`. The package builds the app's production calculation and distance/ranking logic without requiring a simulator. Twelve test functions cover known units, missing data, zero measurements, weighted coverage, invalid samples, invalid ventilation, invalid duration, additive segments, distance units, radius enforcement, invalid coordinates and deterministic deduplication. Some tests are parameterised.
+Run `swift test`. The package builds the app's production domain logic without requiring a simulator. Twenty-one test functions cover exposure units/coverage/invalid data, nearby radius/ranking/deduplication, geofence freshness/limits/entry/cooldown, closed GeoJSON polygons and crossing segments, provider geometry decoding, and route recommendations with time/data limits. Some tests are parameterised.
 
 Core tests passing does not establish persistence, network, permission, accessibility or full UI correctness. Those need the checks in the coursework plan.
 
@@ -60,7 +63,7 @@ Coverage describes usable sampled time, not measured street-level accuracy. Near
 
 Tracking is currently foreground-only and active sessions are not restored after process termination. Cloud accounts, cloud backup/sync, remote push, segment-level pollution colouring, background tracking and further advanced integrations remain unfinished.
 
-Nearby recommendations mean the closest returned matches for the chosen category, not a pollution or medical safety ranking. The 250 m circles illustrate sample locations; they are not measured pollution boundaries or enabled geofences. Geofence entry alerts and pollution-area avoidance routing remain future work. See `docs/MAP_EXPERIENCE.md`.
+Nearby recommendations mean the closest returned matches for the chosen category, not a pollution or medical safety ranking. The 250 m circles illustrate sample locations; they are not measured pollution boundaries. Optional active-walk awareness registers eligible high-category samples separately. See `docs/MAP_EXPERIENCE.md` and `docs/GEOFENCING_AND_ROUTING.md` for setup, implementation and outstanding live/device verification.
 
 ## Coursework and AI assistance
 

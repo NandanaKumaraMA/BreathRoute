@@ -48,6 +48,8 @@ struct WalkRoute: Identifiable {
     let estimate: ExposureEstimate
     let demo: Bool
     var airSamples: [RouteAirSample] = []
+    var source = "Illustrative demo"
+    var avoidedAreaCount = 0
     var polyline: MKPolyline { MKPolyline(coordinates: coordinates, count: coordinates.count) }
 }
 

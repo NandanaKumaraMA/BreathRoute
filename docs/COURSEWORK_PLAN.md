@@ -22,21 +22,21 @@ Components 1–3 are mandatory: zero in any results in module failure. A 70%+ ta
 | Visual design | Redesigned screens, a shared visual system and native navigation | Review each journey on small iPhone, large text, dark mode and iPad; refresh Figma to match the app |
 | Authentication | Local profile and device-authentication app lock | Firebase registration, sign-in/out, password reset and session restoration |
 | Air-quality API | Real OpenWeather response verified on 7 October; key stored in the development iPhone simulator's Keychain; clearer credential/quota/network errors | Test failure paths; add cache, freshness policy and request reuse |
-| Routing | Place search, walking directions, alternatives, distance-based sampling, coverage-aware scoring | Validate available walking directions in the demonstration area; handle equal routes and add segment readings/legend |
+| Routing | Type-ahead and nearby search; bounded sampling; ORS walking/avoidance requests; geometry checks and comparable route policy | MapKit walking request failed in the tested Colombo area. Configure ORS key and verify live paths, alternatives, account limits and avoidance |
 | Route pollution overlays | Selected route uses one colour | Persist segment readings and draw lower/moderate/higher/missing segments with equivalent text descriptions |
-| Active walk | Foreground GPS distance and observed dose; gap handling | Background tracking, session recovery, route deviation and final completeness status |
+| Active walk | Foreground GPS/dose; gap handling; optional sample-area awareness and explicit remaining-route switching | Verify native regions and switching on-device; background tracking, session recovery, deviation and final completeness status |
 | HealthKit | Optional recent heart/respiratory samples displayed on-device | Further integration must have a defensible model and a clear effect on the user journey; current context display alone is limited advanced evidence |
 | Persistence | Core Data trip and symptom CRUD | Test reopening, corrupt/error cases and linked-record deletion; add versioned migrations and richer route records |
-| Notifications | Scheduled local daily check-in | In-walk pollution/exposure awareness alerts, cooldown and in-app fallback; confirm whether the lecturer requires remote push/APNs |
+| Notifications | Daily local check-in; optional in-walk area-awareness notification/cooldown and in-app state | Verify delivery/denial/expiry on a physical device; confirm whether remote push/APNs is required |
 | Firebase/Firestore | Not integrated | Configure a project; implement owner-only rules, account-scoped data, summary-only sync, retries, deletions and conflicts |
 | Symptoms/history | Notes, linked walks, date filters, details and sharing | Expand daily/weekly insights and restored-summary/incomplete states without causal claims |
 | Accessibility | Semantic labels, system text styles, non-colour selection indicators, Reduce Motion-aware buttons | Complete real VoiceOver walkthrough, largest text sizes, contrast and touch-target checks |
-| Unit testing | Eight Swift Testing functions of exposure core | Inject testable services; test persistence, sampling, ranking/ties, parsing, sync and tracking edges |
+| Unit testing | 21 Swift Testing functions covering exposure, nearby ranking, geofence policy, geometry, decoding and recommendation limits | Inject services and add persistence/network/tracking integration checks; sync verification |
 | iPad | Sidebar and wider dashboard/planner composition; closing/reopening the sidebar verified after a navigation-bar fix | Verify landscape, narrow multitasking, keyboard interaction and explanation for LO1 |
 
 ## Advanced features to prioritise
 
-The student has requested new ideas beyond the existing feature list and proposed geofencing with pollution circles and alternative paths. See [NEW_FEATURES.md](NEW_FEATURES.md) for the prioritised pollution-aware geofencing/rerouting workflow, API limitations, acceptance criteria and optional forecast/Core Motion/Live Activity extensions. These are proposals, not implemented or approved features; use that document to revise scope before treating them as submission commitments.
+The student requested geofencing, pollution circles and alternative paths. Initial awareness/avoidance/rerouting code now compiles and domain tests pass; live/provider/physical-device acceptance remains outstanding. See [GEOFENCING_AND_ROUTING.md](GEOFENCING_AND_ROUTING.md). [NEW_FEATURES.md](NEW_FEATURES.md) records the acceptance criteria and optional forecast/Core Motion/Live Activity proposals. Confirm any added coursework scope with the lecturer and preserve time for validation and the separate Tutorial 4 task.
 
 1. **MapKit + Core Location as the core advanced integration.** Alternative route geometry, meaningful segment sampling, a textual pollution legend, tracking quality, deviation and lifecycle recovery. A hardcoded demo map does not count as live integration.
 2. **Spoken route and active-walk summaries.** On-demand text-to-speech is already present. Add current-trip summaries and clear stop controls; ensure optional speech never conflicts with VoiceOver.

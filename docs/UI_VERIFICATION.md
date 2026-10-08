@@ -1,4 +1,15 @@
-# UI verification on 7 October 2026
+# UI verification on 7–8 October 2026
+
+## Explore enhancement checks on 8 October
+
+- The updated Explore map and native type-ahead suggestions compile and launch on the development iPhone simulator.
+- At the simulated public Colombo coordinate, Parks and Cafés return live Apple Maps matches. The café list shows Cafe Latte at 162 m and CafeNova at 231 m from the search centre; these are test-time straight-line distances, not user-location measurements or route distances.
+- Typing `Vihara` produces Apple Maps suggestions including Vihara Mahadevi Park, its Buddha statue and nearby streets. Selecting the park suggestion resolves it and updates the destination field.
+- Selecting Cafe Latte opens its address/detail sheet. **Check air quality here** returns a live OpenWeather response: PM2.5 **0.8 µg/m³**, overall AQI **1/5**, provider sample **10:19 on 8 October**. **Use as my destination** updates the route planner and shows the sample legend. These are response values at test time, not permanent current data.
+- A MapKit walking request to that place returns **Walking Directions Not Available**. Nearby search alone does not establish walking-routing support. The subsequently added openrouteservice connection needs a local routing key and live verification.
+- The installed app exposes **You → Walking-route connection**, a secure key field and a Save routing key on this device action. No routing key has been inspected or printed by the verification tools.
+- Builds containing native geofence registration, polygon requests and remaining-route switching compile. **Their runtime/native/physical-device behaviour has not yet been established.**
+- All **21** Swift Testing domain functions pass, covering exposure, nearby ranking, watch-area policy/entry/cooldown, polygon crossing, route decoding and recommendation constraints.
 
 ## Confirmed
 

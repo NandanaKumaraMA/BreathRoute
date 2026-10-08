@@ -19,6 +19,15 @@ final class AppModel {
     let location = LocationService()
     let voice = VoiceService()
     let health = HealthService()
+    let geofences = GeofenceService()
+    var remainingOptions: [WalkRoute] = []
+    var remainingBusy = false
+    var remainingNotice: String?
+    var routeNotice: String?
+    var extraMinutes = 10.0
+    private var remainingTask: Task<Void, Never>?
+    private var plannedStart: CLLocationCoordinate2D?
+    private var plannedDestination: MKMapItem?
     private var repository: LocalStore?
     var persistenceAvailable: Bool { repository != nil }
     var activeRoute: WalkRoute?
@@ -42,7 +51,11 @@ final class AppModel {
             symptoms = try repository!.read("symptom", as: SymptomEntry.self).sorted { $0.date > $1.date }
             trips = try repository!.read("trip", as: TripEntry.self).sorted { $0.date > $1.date }
         } catch { self.error = "Local storage could not be opened. Your existing data has not been reset. \(error.localizedDescription)" }
-        location.onUpdate = { [weak self] in self?.recordLocation($0) }
+        location.onUpdate = { [weak self] location in
+            guard let self else { return }
+            self.recordLocation(location)
+            if self.activeRoute != nil { self.geofences.evaluate(location) }
+        }
     }
     func save(_ entry: SymptomEntry) -> Bool {
         guard let repository else { error = "Local storage is unavailable. Your note has not been saved."; return false }
@@ -79,20 +92,23 @@ final class AppModel {
     }
     func plan(start: CLLocationCoordinate2D, destination: MKMapItem) async {
         planGeneration += 1; let ticket = planGeneration
-        busy = true; routes = []; selectedRoute = nil; demo = false; air = nil
+        busy = true; routes = []; selectedRoute = nil; demo = false; air = nil; routeNotice = nil
         defer { if ticket == planGeneration { busy = false } }
         do {
             let planned = try await RouteService().routes(from: start, to: destination, intensity: intensity, key: KeyStore.read("openweather"))
             try Task.checkCancellation()
             guard ticket == planGeneration else { return }
             routes = planned
+            plannedStart = start; plannedDestination = destination
             selectedRoute = routes.first?.id
             destinationName = destination.name ?? "Destination"
+            if routes.count == 1 { routeNotice = "The provider returned one walking option. Alternative paths are not available for every request." }
         } catch is CancellationError { }
         catch { if ticket == planGeneration { self.error = error.localizedDescription } }
     }
     func cancelPlanning() { planGeneration += 1; busy = false }
     func start(_ route: WalkRoute) {
+        remainingOptions = []; geofences.stop()
         activeRoute = route; walkStarted = Date(); trackedMetres = 0; trackedSeconds = 0; trackedSegments = []; lastLocation = nil; lastRefresh = nil
         trackingMessage = route.demo ? "Demo session: no live movement or exposure is recorded." : "Foreground tracking. Keep the app open; background intervals are excluded."
         if !route.demo { location.request() }
@@ -134,14 +150,86 @@ final class AppModel {
                               demo: route.demo, complete: false)
         do {
             try repository.save(entry, id: entry.id, kind: "trip")
-            trips.insert(entry, at: 0); activeRoute = nil; walkStarted = nil; location.stop(); voice.stop(); section = .journal
+            trips.insert(entry, at: 0); activeRoute = nil; walkStarted = nil; location.stop(); voice.stop(); geofences.stop(); remainingTask?.cancel(); remainingOptions = []; section = .journal
         } catch { self.error = "Walk remains open because saving failed: \(error.localizedDescription)" }
     }
     var selected: WalkRoute? { routes.first { $0.id == selectedRoute } }
     var bestRouteID: UUID? {
-        guard routes.count > 1, routes.allSatisfy({ $0.estimate.isComplete && $0.estimate.observedDose != nil }) else { return nil }
-        let sorted = routes.sorted { $0.estimate.observedDose! < $1.estimate.observedDose! }
-        guard sorted[1].estimate.observedDose! - sorted[0].estimate.observedDose! > 0.1 else { return nil }
-        return sorted[0].id
+        guard routes.allSatisfy(Self.freshForRecommendation) else { return nil }
+        return RouteChoicePolicy.recommended(routes.map { RouteChoice(id: $0.id.uuidString, seconds: $0.seconds, dose: $0.estimate.observedDose, complete: $0.estimate.isComplete) }, extraMinutes: extraMinutes).flatMap(UUID.init(uuidString:))
+    }
+    var watchSamples: [WatchArea] {
+        (activeRoute ?? selected)?.airSamples.compactMap { sample in
+            guard let reading = sample.reading, !reading.demo else { return nil }
+            return WatchArea(id: sample.id.uuidString, latitude: sample.coordinate.latitude, longitude: sample.coordinate.longitude, pm25: reading.pm25, aqi: reading.aqi, sampledAt: reading.date)
+        } ?? []
+    }
+    var bestRemainingRouteID: String? {
+        guard remainingOptions.allSatisfy(Self.freshForRecommendation) else { return nil }
+        return RouteChoicePolicy.recommended(remainingOptions.map { RouteChoice(id: $0.id.uuidString, seconds: $0.seconds, dose: $0.estimate.observedDose, complete: $0.estimate.isComplete) }, extraMinutes: extraMinutes)
+    }
+    func addAvoidanceOption() async {
+        guard activeRoute == nil, let start = plannedStart, let destination = plannedDestination else { return }
+        let ticket = planGeneration; routeNotice = nil
+        busy = true; defer { if ticket == planGeneration { busy = false } }
+        do {
+            let areas = avoidableAreas(from: start, to: destination.placemark.coordinate)
+            guard !areas.isEmpty else { throw ServiceError.noAvoidableAreas }
+            let options = try await RouteService().routes(from: start, to: destination, intensity: intensity, key: KeyStore.read("openweather"), avoiding: areas)
+            try Task.checkCancellation()
+            guard ticket == planGeneration, activeRoute == nil else { return }
+            let previousCount = routes.count
+            for option in options {
+                if !routes.contains(where: { Self.samePath($0, option) }) { routes.append(option) }
+            }
+            if routes.count == previousCount { routeNotice = "The provider returned an existing path. No distinct avoidance option was added." }
+        } catch is CancellationError { }
+        catch { if ticket == planGeneration { self.error = error.localizedDescription } }
+    }
+    func compareRemaining(avoidAreas: Bool) {
+        guard let route = activeRoute, !route.demo else { return }
+        guard let current = location.currentLocation else { location.request(); error = "A recent accurate location is needed. Try Compare from here after a new location update."; return }
+        let destination = plannedDestination ?? route.coordinates.last.map { MKMapItem(placemark: MKPlacemark(coordinate: $0)) }
+        guard let destination else { return }
+        remainingTask?.cancel(); remainingBusy = true; remainingOptions = []; remainingNotice = nil
+        remainingTask = Task {
+            defer { remainingBusy = false }
+            do {
+                var options = try await RouteService().routes(from: current.coordinate, to: destination, intensity: intensity, key: KeyStore.read("openweather"))
+                if avoidAreas {
+                    let areas = avoidableAreas(from: current.coordinate, to: destination.placemark.coordinate)
+                    if !areas.isEmpty {
+                        do {
+                            let detours = try await RouteService().routes(from: current.coordinate, to: destination, intensity: intensity, key: KeyStore.read("openweather"), avoiding: areas)
+                            for detour in detours where !options.contains(where: { Self.samePath($0, detour) }) { options.append(detour) }
+                        } catch is CancellationError { throw CancellationError() }
+                        catch { remainingNotice = error.localizedDescription + " The available baseline options remain below." }
+                    } else { remainingNotice = "No eligible fresh areas can be excluded from this journey. Available walking options were compared." }
+                }
+                try Task.checkCancellation()
+                guard activeRoute != nil else { return }
+                remainingOptions = options
+            } catch is CancellationError { }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+    func switchRemaining(to route: WalkRoute) {
+        guard activeRoute != nil, !route.demo else { return }
+        // Keep elapsed session, recorded movement and completed exposure intervals intact.
+        activeRoute = route; routes = [route]; selectedRoute = route.id; remainingOptions = []
+        remainingNotice = nil
+        geofences.replace(samples: watchSamples); geofences.clearEntry()
+        trackingMessage = "Remaining route changed. Completed recorded intervals are preserved."
+    }
+    private func avoidableAreas(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D) -> [WatchArea] {
+        WatchAreaPolicy.select(watchSamples, now: Date()).filter {
+            !$0.contains(latitude: start.latitude, longitude: start.longitude) && !$0.contains(latitude: end.latitude, longitude: end.longitude)
+        }
+    }
+    private static func samePath(_ a: WalkRoute, _ b: WalkRoute) -> Bool {
+        a.coordinates.count == b.coordinates.count && zip(a.coordinates, b.coordinates).allSatisfy { abs($0.latitude - $1.latitude) < 0.00001 && abs($0.longitude - $1.longitude) < 0.00001 }
+    }
+    private static func freshForRecommendation(_ route: WalkRoute) -> Bool {
+        route.demo || (!route.airSamples.isEmpty && route.airSamples.allSatisfy { $0.reading?.isFresh == true })
     }
 }

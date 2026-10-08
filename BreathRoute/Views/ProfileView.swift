@@ -8,6 +8,7 @@ struct ProfileView: View {
     @State private var reminderDraft = false
     @State private var time = Date()
     @State private var key = ""
+    @State private var routingKey = ""
     @State private var status: String?
     @State private var working = false
     @State private var healthWorking = false
@@ -66,6 +67,22 @@ struct ProfileView: View {
                     }.padding(.top, 16)
                 } label: {
                     HStack(spacing: 14) { settingsIcon("cloud.sun", tint: Palette.forest); VStack(alignment: .leading, spacing: 6) { Text("Air-quality connection").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text(KeyStore.read("openweather").isEmpty ? "Add OpenWeather to see live data" : "API key saved on this device").font(.caption).foregroundStyle(Palette.muted) } }
+                }
+            }
+            Surface {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 16) {
+                        SecureField("openrouteservice API key", text: $routingKey).textInputAutocapitalization(.never).autocorrectionDisabled().font(.subheadline).padding(14).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 13))
+                        Button("Save routing key on this device") {
+                            do { try KeyStore.save(routingKey.trimmingCharacters(in: .whitespacesAndNewlines), key: "openrouteservice"); routingKey = ""; status = "Routing key saved in Keychain. New comparisons will use openrouteservice walking routes." }
+                            catch { status = "Could not save the routing key." }
+                        }.font(.subheadline.weight(.semibold)).disabled(routingKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Text("Requests send the chosen start, destination and any excluded sample-area polygons to openrouteservice. OpenWeather still supplies air readings. The key stays in device Keychain.").font(.caption).foregroundStyle(Palette.muted)
+                        Link("openrouteservice API and attribution", destination: URL(string: "https://openrouteservice.org/dev/")!).font(.caption)
+                        Text("Route data: openrouteservice and OpenStreetMap contributors. Walking access and account limits need verification.").font(.caption2).foregroundStyle(Palette.muted)
+                    }.padding(.top, 16)
+                } label: {
+                    HStack(spacing: 14) { settingsIcon("arrow.triangle.branch", tint: Palette.forest); VStack(alignment: .leading, spacing: 6) { Text("Walking-route connection").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text(KeyStore.read("openrouteservice").isEmpty ? "Add routes and area-avoidance support" : "Routing key saved on this device").font(.caption).foregroundStyle(Palette.muted) } }
                 }
             }
             Surface {

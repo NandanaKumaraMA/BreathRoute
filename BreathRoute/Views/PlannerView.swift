@@ -27,14 +27,18 @@ struct PlannerView: View {
     @State private var pendingComparison = false
     @State private var locationNotice: String?
     @State private var routeTask: Task<Void, Never>?
+    @State private var walkTool: WalkTool?
+    @State private var toolAction: ToolAction?
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     enum SearchTarget: String, Identifiable { case start, destination; var id: String { rawValue } }
     enum NearbyOrigin { case current, manual, map, preview }
+    enum ToolAction { case configure, plan }
     var body: some View {
         GeometryReader { geometry in
             Page {
                 PageHeader(title: model.activeRoute == nil ? "Find your next stop." : "Enjoy your walk.", subtitle: model.activeRoute == nil ? "Explore your surroundings" : "Walk in progress", symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                WalkToolsLauncher(model: model) { walkTool = $0 }
                 if model.demo {
                     HStack(spacing: 10) {
                         StatusPill(title: "Demo", symbol: "sparkles")
@@ -71,6 +75,17 @@ struct PlannerView: View {
         .sheet(item: $placeDetail) { place in
             NearbyPlaceDetail(place: place, discovery: discovery) { chooseDestination(place) }
         }
+        .sheet(item: $walkTool, onDismiss: {
+            guard let action = toolAction else { return }
+            toolAction = nil
+            switch action {
+            case .configure: model.section = .profile
+            case .plan:
+                if model.selected?.demo != false { searchTarget = .destination }
+            }
+        }) { tool in
+            WalkToolsSheet(tool: tool, model: model, configure: { toolAction = .configure; walkTool = nil }, plan: { toolAction = .plan; walkTool = nil })
+        }
         .fullScreenCover(isPresented: $expandedMap) {
             NavigationStack {
                 map(expanded: true)
@@ -93,6 +108,11 @@ struct PlannerView: View {
         } message: { Text("Only recorded intervals are saved. Missing intervals are labelled as incomplete coverage.") }
         .onChange(of: model.routes.map(\.id)) { _, _ in if !model.routes.isEmpty { focusRoutes() } }
         .onChange(of: model.selectedRoute) { _, _ in if !model.routes.isEmpty { focusRoutes() } }
+        .onChange(of: model.remainingOptions.map(\.id)) { _, _ in
+            guard !model.remainingOptions.isEmpty else { return }
+            let rect = model.remainingOptions.reduce(MKMapRect.null) { $0.union($1.polyline.boundingMapRect) }
+            moveCamera(.rect(rect.insetBy(dx: -max(300, rect.size.width * 0.3), dy: -max(500, rect.size.height * 0.5))))
+        }
         .onChange(of: nearbyCategory) { _, _ in refreshNearby() }
         .onChange(of: radius) { _, _ in refreshNearby(recenter: true) }
         .onChange(of: discovery.places.map(\.id)) { _, ids in
@@ -145,6 +165,7 @@ struct PlannerView: View {
         .overlay(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: 8) {
                 if searchMovedArea && model.activeRoute == nil { searchAreaButton }
+                if !model.remainingOptions.isEmpty { Text("Dashed: remaining options").font(.caption2.weight(.medium)).padding(9).background(.regularMaterial, in: Capsule()) }
                 Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "route" : "routes")")
                     .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 9).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
             }.padding(14).padding(.trailing, 56)
@@ -211,7 +232,12 @@ struct PlannerView: View {
         }
     }
     @ViewBuilder private var routeOptions: some View {
-        if let route = model.activeRoute { activeCard(route) }
+        if let route = model.activeRoute {
+            activeCard(route)
+            if !route.demo {
+                Button { walkTool = .rerouting } label: { Label("Open rerouting controls", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
+            }
+        }
         else if model.routes.isEmpty {
             Surface {
                 HStack(spacing: 14) {
@@ -222,8 +248,19 @@ struct PlannerView: View {
             }
         } else {
             SectionHeading(title: "Choose your walk", detail: "\(model.routes.count) options")
+            Picker("Extra-time budget for recommendations", selection: $model.extraMinutes) {
+                Text("5 min extra").tag(5.0); Text("10 min extra").tag(10.0); Text("20 min extra").tag(20.0)
+            }.pickerStyle(.menu).font(.caption)
             ForEach(Array(model.routes.enumerated()), id: \.element.id) { index, route in routeCard(route, index: index) }
             InfoNote(text: "Dose assumes \(Int(model.intensity.ventilation * 1000)) L/min ventilation. Sample coverage does not establish street-level accuracy.")
+            if model.bestRouteID == nil && model.routes.count > 1 { InfoNote(text: "No distinct recommendation with complete recent samples inside your time budget. Review time, dose and coverage below.") }
+            if let notice = model.routeNotice { InfoNote(text: notice) }
+            if !model.demo {
+                Button("Find an area-avoidance option") {
+                    routeTask?.cancel(); routeTask = Task { await model.addAvoidanceOption() }
+                }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.busy)
+                InfoNote(text: "Excludes eligible fresh AQI 3–5 sample areas with openrouteservice, then checks and samples the returned path. Circles are approximate; a longer detour may increase dose.")
+            }
         }
     }
     private func routeCard(_ route: WalkRoute, index: Int) -> some View {
@@ -250,6 +287,10 @@ struct PlannerView: View {
                     Text("\(Int(route.estimate.coverage * 100))% sampled coverage").font(.caption2).foregroundStyle(Palette.muted)
                     Spacer()
                     if route.demo { Text("DEMO").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted) }
+                }
+                if !route.demo {
+                    Text(route.source).font(.caption2).foregroundStyle(Palette.muted)
+                    if route.avoidedAreaCount > 0 { Label("\(route.avoidedAreaCount) sample areas avoided · geometry checked", systemImage: "checkmark.shield").font(.caption2).foregroundStyle(Palette.forest) }
                 }
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))

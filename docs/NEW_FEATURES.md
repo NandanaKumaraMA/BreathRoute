@@ -1,10 +1,10 @@
 # New advanced feature proposal
 
-Prepared on 7 October 2026 and updated on 8 October for the 31 October submission. Geofencing, rerouting, forecasts, motion sensing and Live Activities below remain **proposed additions, not lecturer-approved scope**. The current Explore build now implements nearby place discovery, type-ahead suggestions, richer map controls, retained route samples and illustrative sample circles; see `MAP_EXPERIENCE.md`. Existing authentication, persistence, API, accessibility and core walking work still needs completion.
+Prepared on 7 October 2026 and updated on 8 October for the 31 October submission. The current Explore build implements nearby place discovery, type-ahead suggestions, map controls, retained samples and illustrative circles; see `MAP_EXPERIENCE.md`. Geofence awareness, ORS polygon requests and remaining-route switching have now been implemented and compile, but live/provider/physical-device verification remains incomplete; see `GEOFENCING_AND_ROUTING.md`. Forecasts, motion sensing and Live Activities remain proposed additions. Lecturer approval of additional scope has not been established. Existing authentication, persistence, API, accessibility and core walking work still needs completion.
 
 ## Recommended flagship: pollution-aware geofencing and rerouting
 
-The student has proposed geofencing, pollution circles and alternative paths. Prioritise these as one integrated workflow: **view pollution samples → compare routes → monitor nearby areas during a walk → offer a fresh comparison after entry → let the user switch**. This remains proposed scope; the current build does not implement pollution-zone geofencing or area-avoidance routing.
+The student proposed geofencing, pollution circles and alternative paths. The workflow is **view pollution samples → compare routes → monitor sampled areas during a walk → offer a fresh comparison after entry → let the user switch**. Its initial implementation is now present; acceptance must be established through the live/device checks in `GEOFENCING_AND_ROUTING.md`.
 
 ### What a circle means
 
@@ -115,4 +115,4 @@ More features do not guarantee 70%+. This proposal targets relevance, integratio
 - [MapKit available alternative routes](https://developer.apple.com/documentation/mapkit/mkdirections/request/requestsalternateroutes)
 - [openrouteservice polygon-avoidance options](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/routing-options)
 
-SDK capabilities were checked against official sources on 7 October 2026. Geofence, avoidance-routing, forecast, motion and Live Activity implementation and runtime verification remain future work.
+SDK capabilities were checked against official sources on 7–8 October 2026. Geofence and avoidance-routing live/device verification remains outstanding. Forecast, motion and Live Activity implementation remains future work.

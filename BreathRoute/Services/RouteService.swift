@@ -38,6 +38,7 @@ struct AirService {
 
 enum ServiceError: LocalizedError {
     case missingKey, unauthorized, quota, network, provider, noReading, noRoutes
+    case routingMissingKey, routingDenied, routingQuota, routingProvider, routingOptionsRejected, areaNotAvoided, noAvoidableAreas
     var errorDescription: String? {
         switch self {
         case .missingKey: "Add your OpenWeather API key in You → Air-quality connection, or explore the labelled demo."
@@ -47,6 +48,13 @@ enum ServiceError: LocalizedError {
         case .provider: "The air-quality provider could not complete the request. Check your API key, connection, and quota."
         case .noReading: "No usable PM2.5 reading was returned. Missing data is not zero exposure."
         case .noRoutes: "No walking route was returned for these locations. Try another destination."
+        case .routingMissingKey: "Add your openrouteservice API key in You → Walking-route connection to use polygon avoidance and supported walking directions."
+        case .routingDenied: "openrouteservice rejected the key or account access. Check the routing key and account in You → Walking-route connection."
+        case .routingQuota: "The openrouteservice request limit was reached. Check your account allowance before trying again."
+        case .routingProvider: "The walking-route provider could not be reached. Check your connection and try again."
+        case .routingOptionsRejected: "The provider could not route with these options. Try a different destination or fewer avoidance areas."
+        case .areaNotAvoided: "The returned path intersects a selected monitoring area. It has not been accepted as an avoidance route."
+        case .noAvoidableAreas: "No fresh AQI 3–5 sample areas can be avoided. Areas containing the start or destination cannot be excluded from this request."
         }
     }
 }
@@ -59,18 +67,40 @@ struct RouteService {
         request.region = MKCoordinateRegion(center: .init(latitude: 6.9147, longitude: 79.8640), span: .init(latitudeDelta: 0.15, longitudeDelta: 0.15))
         return try await MKLocalSearch(request: request).start().mapItems
     }
-    func routes(from start: CLLocationCoordinate2D, to destination: MKMapItem, intensity: WalkingIntensity, key: String) async throws -> [WalkRoute] {
+    func routes(from start: CLLocationCoordinate2D, to destination: MKMapItem, intensity: WalkingIntensity, key: String, avoiding areas: [WatchArea] = []) async throws -> [WalkRoute] {
         guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ServiceError.missingKey }
+        let routingKey = KeyStore.read("openrouteservice")
+        if !routingKey.isEmpty || !areas.isEmpty {
+            let geometries = try await OpenRouteService().fetch(from: start, to: destination.placemark.coordinate, avoiding: areas, key: routingKey)
+            var routes: [WalkRoute] = []
+            for (index, geometry) in geometries.enumerated() {
+                let points = geometry.coordinates.map { CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) }
+                routes.append(try await score(name: areas.isEmpty ? "Walking option \(index + 1)" : "Avoidance option", coordinates: points, metres: geometry.metres, seconds: geometry.seconds, intensity: intensity, key: key, source: "openrouteservice · OpenStreetMap contributors", avoidedAreaCount: areas.count))
+            }
+            return routes
+        }
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: start))
         request.destination = destination; request.transportType = .walking; request.requestsAlternateRoutes = true
-        let response = try await MKDirections(request: request).calculate()
+        let response: MKDirections.Response
+        do { response = try await MKDirections(request: request).calculate() }
+        catch is CancellationError { throw CancellationError() }
+        catch {
+            let failure = error as NSError
+            if failure.domain == MKErrorDomain && failure.code == MKError.Code.directionsNotFound.rawValue { throw ServiceError.routingMissingKey }
+            throw ServiceError.routingProvider
+        }
         guard !response.routes.isEmpty else { throw ServiceError.noRoutes }
         var result: [WalkRoute] = []
         for route in response.routes.prefix(3) {
             try Task.checkCancellation()
             let points = route.polyline.points()
             let coordinates = (0..<route.polyline.pointCount).map { points[$0].coordinate }
+            result.append(try await score(name: route.name, coordinates: coordinates, metres: route.distance, seconds: route.expectedTravelTime, intensity: intensity, key: key, source: "Apple Maps"))
+        }
+        return result
+    }
+    private func score(name: String, coordinates: [CLLocationCoordinate2D], metres: Double, seconds: Double, intensity: WalkingIntensity, key: String, source: String, avoidedAreaCount: Int = 0) async throws -> WalkRoute {
             // Distance-weighted sample intervals, capped to keep request volume bounded.
             let samples = sampleCoordinates(coordinates, maxCount: 8)
             var segments: [ExposureSegment] = []
@@ -88,14 +118,11 @@ struct RouteService {
                 }
                 catch { reading = nil }
                 airSamples.append(.init(coordinate: sample.coordinate, reading: reading))
-                segments.append(ExposureSegment(minutes: route.expectedTravelTime / 60 * sample.weight,
+                segments.append(ExposureSegment(minutes: seconds / 60 * sample.weight,
                                                 pm25: reading?.isFresh == true ? reading?.pm25 : nil))
             }
-            result.append(WalkRoute(name: route.name, coordinates: coordinates, metres: route.distance,
-                                    seconds: route.expectedTravelTime,
-                                    estimate: ExposureCalculator.estimate(segments, ventilation: intensity.ventilation), demo: false, airSamples: airSamples))
-        }
-        return result
+            return WalkRoute(name: name, coordinates: coordinates, metres: metres, seconds: seconds,
+                                    estimate: ExposureCalculator.estimate(segments, ventilation: intensity.ventilation), demo: false, airSamples: airSamples, source: source, avoidedAreaCount: avoidedAreaCount)
     }
     private func sampleCoordinates(_ coordinates: [CLLocationCoordinate2D], maxCount: Int) -> [(coordinate: CLLocationCoordinate2D, weight: Double)] {
         guard coordinates.count > 1 else { return coordinates.map { ($0, 1) } }

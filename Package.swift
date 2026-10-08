@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.library(name: "BreatheRouteCore", targets: ["BreatheRouteCore"])],
     targets: [
-        .target(name: "BreatheRouteCore", path: "BreathRoute/Domain", exclude: ["Models.swift"], sources: ["Exposure.swift", "NearbyRanking.swift"]),
+        .target(name: "BreatheRouteCore", path: "BreathRoute/Domain", exclude: ["Models.swift"], sources: ["Exposure.swift", "NearbyRanking.swift", "WatchAreas.swift", "RoutingPayload.swift", "RouteChoicePolicy.swift"]),
         .testTarget(name: "BreatheRouteCoreTests", dependencies: ["BreatheRouteCore"], path: "Tests/BreatheRouteCoreTests")
     ]
 )

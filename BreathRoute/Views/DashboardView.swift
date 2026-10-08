@@ -60,18 +60,18 @@ struct DashboardView: View {
     }
     private var airReading: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(model.air?.label ?? "Not connected").font(.title3.weight(.medium)).foregroundStyle(Palette.lime)
+            Text(model.air?.label ?? (KeyStore.read("openweather").isEmpty ? "Connect air data" : "No reading yet")).font(.title3.weight(.medium)).foregroundStyle(Palette.lime)
             if let air = model.air {
                 Text(air.pm25, format: .number.precision(.fractionLength(1))).font(.system(.largeTitle, design: .rounded).weight(.medium)).foregroundStyle(.white)
                 Text("µg/m³ · PM2.5").font(.caption).foregroundStyle(.white.opacity(0.75))
             } else {
                 Text("Your air.\nIn perspective.").font(.system(.title, design: .serif)).foregroundStyle(.white)
-                Button("Enable location") { model.location.request() }.font(.caption.weight(.semibold)).foregroundStyle(Palette.lime).padding(.vertical, 8)
+                Button(model.location.hasAuthorization ? "Use my current location" : "Enable location") { model.location.request() }.font(.caption.weight(.semibold)).foregroundStyle(Palette.lime).padding(.vertical, 8)
             }
         }.accessibilityElement(children: .contain)
     }
     private var sourceLabel: String {
-        guard let air = model.air else { return "No live reading · add your data connection in You" }
+        guard let air = model.air else { return KeyStore.read("openweather").isEmpty ? "No live reading · add your data connection in You" : "Connection configured · use your location, then refresh" }
         return air.demo ? "DEMO · illustrative data" : "OpenWeather · \(air.date.formatted(.dateTime.hour().minute())) · \(air.isFresh ? "recent" : "stale")"
     }
     private var weekCard: some View {

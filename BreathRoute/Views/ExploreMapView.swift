@@ -49,6 +49,9 @@ struct ExploreMapView: View {
             ForEach(model.routes) { route in
                 MapPolyline(route.polyline).stroke(route.id == model.selectedRoute ? Palette.deep : Color.gray.opacity(0.6), style: StrokeStyle(lineWidth: route.id == model.selectedRoute ? 6 : 3, lineCap: .round, lineJoin: .round))
             }
+            ForEach(model.remainingOptions) { route in
+                MapPolyline(route.polyline).stroke(Color(hex: 0x6E5BA8), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [7, 5]))
+            }
             if model.activeRoute == nil && !model.demo {
                 ForEach(mapPlaces, id: \.element.id) { index, place in
                     Annotation(place.name, coordinate: place.coordinate, anchor: .bottom) {

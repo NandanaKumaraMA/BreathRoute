@@ -29,7 +29,7 @@ Place air checks are explicit to avoid silently spending quota on every pin. The
 
 ## Remaining work
 
-Actual geofence registration/entry awareness, background session recovery, rerouting from an active walk, pollution polygon avoidance, forecast planning and Firebase accounts/sync are not implemented here. Live walking-direction coverage must be checked separately from working maps and search. Physical-device location, accessibility and lifecycle verification are still needed.
+Geofence registration/entry awareness, compare-from-here, remaining-route switching and openrouteservice polygon requests were subsequently added on 8 October; see `GEOFENCING_AND_ROUTING.md` for their verification limits. Background session recovery, forecast planning and Firebase accounts/sync remain unfinished. MapKit returned “Walking Directions Not Available” for the tested central-Colombo journey; live openrouteservice coverage still needs the configured account key. Physical-device location, accessibility and lifecycle verification are still needed.
 
 ## Official references
 
