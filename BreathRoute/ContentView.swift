@@ -18,7 +18,7 @@ struct ContentView: View {
                     List(AppSection.allCases) { section in
                         Button { model.section = section } label: { Label(section.rawValue, systemImage: section.symbol).padding(.vertical, 8) }
                             .listRowBackground(model.section == section ? Palette.forest.opacity(0.12) : Color.clear)
-                    }.navigationTitle("BreatheRoute")
+                    }.navigationTitle("BreatheRoute").navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
                 } detail: { NavigationStack { destination(model.section) } }
             } else {
                 TabView(selection: $model.section) {
@@ -29,6 +29,7 @@ struct ContentView: View {
             }
         }
         .tint(Palette.forest)
+        .background(Palette.canvas)
         .onChange(of: phase) { _, next in
             model.setForeground(next == .active)
             if next == .background { unlocked = false; model.voice.stop() }
@@ -64,25 +65,54 @@ struct ContentView: View {
 struct WelcomeView: View {
     @Bindable var model: AppModel
     var finish: () -> Void
+    @State private var stage = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Page {
-            HStack { Label("BreatheRoute", systemImage: "leaf.fill").font(.headline); Spacer(); Text("01 / START").font(.caption.monospaced()).foregroundStyle(.secondary) }.padding(.top, 30)
-            ZStack {
-                Circle().fill(Palette.forest.opacity(0.08)).frame(width: 230, height: 230)
-                Circle().stroke(Palette.forest.opacity(0.18), lineWidth: 1).frame(width: 180, height: 180)
-                Image(systemName: "figure.walk").font(.system(size: 90, weight: .light)).foregroundStyle(Palette.forest)
-                Image(systemName: "leaf.fill").font(.largeTitle).foregroundStyle(Palette.forest).offset(x: 75, y: -60)
-            }.frame(maxWidth: .infinity).accessibilityHidden(true)
-            Text("A little more awareness.\nEvery step.").font(.largeTitle.bold())
-            Text("Compare walking routes, understand estimated pollution exposure, and keep a personal journal.").font(.title3).foregroundStyle(.secondary)
-            Surface {
-                TextField("What should we call you?", text: $model.name).textContentType(.givenName).font(.headline)
-                Divider()
-                Picker("Usual walking pace", selection: $model.intensity) { ForEach(WalkingIntensity.allCases) { Text($0.rawValue).tag($0) } }
-                InfoNote(text: "Location and Apple Health are optional. We’ll ask only when you use them.")
+            HStack(spacing: 10) { BrandMark(); Text("breathe route").font(.system(.headline, design: .rounded)).foregroundStyle(Palette.ink); Spacer(); Eyebrow(text: "0\(stage + 1) / 02") }.padding(.top, 12)
+            if stage == 0 {
+                ZStack(alignment: .bottomLeading) {
+                    RouteArtwork()
+                    Text("A little more perspective.").font(.caption.weight(.semibold)).foregroundStyle(Palette.deep).padding(.horizontal, 13).padding(.vertical, 9).background(.white.opacity(0.92), in: Capsule()).padding(18)
+                }.frame(height: 235).clipShape(RoundedRectangle(cornerRadius: 30))
+                VStack(alignment: .leading, spacing: 15) {
+                    Eyebrow(text: "Meet your walking companion")
+                    Text("Every step,\na little wiser.").font(.system(.largeTitle, design: .serif)).foregroundStyle(Palette.ink)
+                    Text("See your walk from a new perspective. Compare routes, understand estimated exposure, and make space for a daily check-in.").font(.subheadline).foregroundStyle(Palette.muted).lineSpacing(4)
+                }
+                HStack(alignment: .top, spacing: 20) {
+                    welcomeFeature("map", title: "Explore", text: "Routes with context")
+                    welcomeFeature("wind", title: "Understand", text: "Estimated exposure")
+                    welcomeFeature("book.closed", title: "Reflect", text: "Your private journal")
+                }.padding(.vertical, 12)
+            } else {
+                PageHeader(title: "Make it your own.", subtitle: "A quick introduction", symbol: "person.crop.circle")
+                Surface { Eyebrow(text: "What should we call you?"); TextField("Your first name (optional)", text: $model.name).font(.title3).textContentType(.givenName).padding(.vertical, 8) }
+                Surface {
+                    SectionHeading(title: "Your usual walking pace")
+                    ForEach(WalkingIntensity.allCases) { intensity in
+                        Button { model.intensity = intensity } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: "figure.walk").font(.headline).frame(width: 40, height: 40).background(Palette.forest.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
+                                VStack(alignment: .leading, spacing: 4) { Text(intensity.rawValue).font(.subheadline.weight(.semibold)); Text(intensity == .easy ? "Take your time" : intensity == .brisk ? "A steady stride" : "A quicker pace").font(.caption).foregroundStyle(Palette.muted) }
+                                Spacer(); Image(systemName: model.intensity == intensity ? "checkmark.circle.fill" : "circle")
+                            }.foregroundStyle(Palette.forest).padding(.vertical, 5)
+                        }.buttonStyle(.plain).accessibilityAddTraits(model.intensity == intensity ? .isSelected : [])
+                    }
+                }
+                Surface { Label("Your choice. Your privacy.", systemImage: "lock").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text("Location and Apple Health are optional. We’ll ask when you need them. Your journal starts locally on this device.").font(.caption).foregroundStyle(Palette.muted) }
             }
-            PrimaryButton(title: "Start exploring") { finish() }
-            Text("Exposure estimates are for awareness, not diagnosis or a guarantee of safety. You can begin locally without an account.").font(.footnote).foregroundStyle(.secondary)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 12) {
+                PrimaryButton(title: stage == 0 ? "Get started" : "Start exploring") {
+                    if stage == 0 { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { stage = 1 } } else { finish() }
+                }
+                Text("Exposure awareness · not a medical assessment").font(.caption2).foregroundStyle(Palette.muted)
+            }.padding(22).background(Palette.canvas)
+        }
+    }
+    private func welcomeFeature(_ symbol: String, title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) { Image(systemName: symbol).font(.title3).foregroundStyle(Palette.forest); Text(title).font(.caption.weight(.semibold)).foregroundStyle(Palette.ink); Text(text).font(.caption2).foregroundStyle(Palette.muted) }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

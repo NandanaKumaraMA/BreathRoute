@@ -47,7 +47,14 @@ struct WalkRoute: Identifiable {
     let seconds: Double
     let estimate: ExposureEstimate
     let demo: Bool
+    var airSamples: [RouteAirSample] = []
     var polyline: MKPolyline { MKPolyline(coordinates: coordinates, count: coordinates.count) }
+}
+
+struct RouteAirSample: Identifiable {
+    let id = UUID()
+    let coordinate: CLLocationCoordinate2D
+    let reading: AirReading?
 }
 
 enum AppSection: String, CaseIterable, Identifiable {

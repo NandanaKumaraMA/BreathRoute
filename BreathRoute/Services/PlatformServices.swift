@@ -13,11 +13,18 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     var location: CLLocation?
     var message = "Location is optional. You can search for a start point instead."
     var onUpdate: ((CLLocation) -> Void)?
+    var hasAuthorization: Bool { manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways }
+    var currentLocation: CLLocation? {
+        guard let location, abs(location.timestamp.timeIntervalSinceNow) < 60 else { return nil }
+        return location
+    }
     override init() { super.init(); manager.delegate = self; manager.desiredAccuracy = kCLLocationAccuracyBest; manager.distanceFilter = 10 }
     func request() {
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse: manager.startUpdatingLocation()
+        case .authorizedAlways, .authorizedWhenInUse:
+            if currentLocation == nil { manager.stopUpdatingLocation() }
+            manager.startUpdatingLocation()
         default: message = "Location access is unavailable. Use a manual start or change access in Settings."
         }
     }

@@ -12,6 +12,7 @@ final class AppModel {
     var air: AirReading?
     var error: String?
     var busy = false
+    private var planGeneration = 0
     var demo = false
     var name: String { didSet { UserDefaults.standard.set(name, forKey: "displayName") } }
     var intensity: WalkingIntensity { didSet { UserDefaults.standard.set(intensity.rawValue, forKey: "intensity") } }
@@ -77,14 +78,20 @@ final class AppModel {
         catch { self.error = error.localizedDescription }
     }
     func plan(start: CLLocationCoordinate2D, destination: MKMapItem) async {
+        planGeneration += 1; let ticket = planGeneration
         busy = true; routes = []; selectedRoute = nil; demo = false; air = nil
-        defer { busy = false }
+        defer { if ticket == planGeneration { busy = false } }
         do {
-            routes = try await RouteService().routes(from: start, to: destination, intensity: intensity, key: KeyStore.read("openweather"))
+            let planned = try await RouteService().routes(from: start, to: destination, intensity: intensity, key: KeyStore.read("openweather"))
+            try Task.checkCancellation()
+            guard ticket == planGeneration else { return }
+            routes = planned
             selectedRoute = routes.first?.id
             destinationName = destination.name ?? "Destination"
-        } catch { self.error = error.localizedDescription }
+        } catch is CancellationError { }
+        catch { if ticket == planGeneration { self.error = error.localizedDescription } }
     }
+    func cancelPlanning() { planGeneration += 1; busy = false }
     func start(_ route: WalkRoute) {
         activeRoute = route; walkStarted = Date(); trackedMetres = 0; trackedSeconds = 0; trackedSegments = []; lastLocation = nil; lastRefresh = nil
         trackingMessage = route.demo ? "Demo session: no live movement or exposure is recorded." : "Foreground tracking. Keep the app open; background intervals are excluded."
