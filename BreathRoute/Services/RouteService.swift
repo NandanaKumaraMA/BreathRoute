@@ -117,7 +117,7 @@ struct RouteService {
                     }
                 }
                 catch { reading = nil }
-                airSamples.append(.init(coordinate: sample.coordinate, reading: reading))
+                airSamples.append(.init(coordinate: sample.coordinate, reading: reading, timeFraction: sample.weight))
                 segments.append(ExposureSegment(minutes: seconds / 60 * sample.weight,
                                                 pm25: reading?.isFresh == true ? reading?.pm25 : nil))
             }
@@ -151,9 +151,14 @@ struct RouteService {
             [.init(latitude: 6.9178, longitude: 79.8637), .init(latitude: 6.9170, longitude: 79.8655), .init(latitude: 6.9144, longitude: 79.8659), .init(latitude: 6.9125, longitude: 79.8645)]
         ]
         return points.enumerated().map { i, coordinates in
-            WalkRoute(name: i == 0 ? "Park-side walk" : "Town Hall walk", coordinates: coordinates,
+            let values: [(Double, Int)] = i == 0 ? [(12, 2), (16, 2)] : [(18, 3), (28, 4)]
+            let samples = values.enumerated().map { index, value in
+                RouteAirSample(coordinate: coordinates[index + 1],
+                               reading: AirReading(pm25: value.0, aqi: value.1, date: Date(), demo: true), timeFraction: 0.5)
+            }
+            return WalkRoute(name: i == 0 ? "Park-side walk" : "Town Hall walk", coordinates: coordinates,
                       metres: i == 0 ? 920 : 820, seconds: i == 0 ? 780 : 660,
-                      estimate: ExposureCalculator.estimate([.init(minutes: i == 0 ? 13 : 11, pm25: i == 0 ? 14 : 23)], ventilation: intensity.ventilation), demo: true)
+                      estimate: ExposureCalculator.estimate([.init(minutes: i == 0 ? 13 : 11, pm25: i == 0 ? 14 : 23)], ventilation: intensity.ventilation), demo: true, airSamples: samples)
         }
     }
 }

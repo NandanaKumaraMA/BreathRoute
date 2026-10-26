@@ -29,6 +29,9 @@ struct PlannerView: View {
     @State private var routeTask: Task<Void, Never>?
     @State private var walkTool: WalkTool?
     @State private var toolAction: ToolAction?
+    @State private var showRouteDetails = false
+    @State private var showDepartureForecast = false
+    @State private var showFullMapRouteDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     enum SearchTarget: String, Identifiable { case start, destination; var id: String { rawValue } }
@@ -38,7 +41,9 @@ struct PlannerView: View {
         GeometryReader { geometry in
             Page {
                 PageHeader(title: model.activeRoute == nil ? "Find your next stop." : "Enjoy your walk.", subtitle: model.activeRoute == nil ? "Explore your surroundings" : "Walk in progress", symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                RecoveryCard(model: model)
                 WalkToolsLauncher(model: model) { walkTool = $0 }
+                ForecastLauncher(active: model.activeRoute != nil) { showDepartureForecast = true }
                 if model.demo {
                     HStack(spacing: 10) {
                         StatusPill(title: "Demo", symbol: "sparkles")
@@ -49,15 +54,17 @@ struct PlannerView: View {
                 }
                 if geometry.size.width >= 800 {
                     HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 16) { routeMap(height: 620); airLegend }
+                        VStack(alignment: .leading, spacing: 16) { routeMap(height: 620); airLegend; coverageBanner }
                         VStack(alignment: .leading, spacing: 20) { planningControls; routeOptions }.frame(width: 340)
                     }
                     if model.activeRoute == nil { nearbyPlaces }
                 } else {
                     routeMap(height: typeSize.isAccessibilitySize ? 510 : 420)
                     airLegend
-                    if model.activeRoute == nil { nearbyPlaces }
+                    coverageBanner
+                    if model.activeRoute == nil && model.routes.isEmpty { nearbyPlaces }
                     planningControls; routeOptions
+                    if model.activeRoute == nil && !model.routes.isEmpty { nearbyPlaces }
                 }
                 if waitingForLocation { InfoNote(symbol: "location", text: model.location.message + " The map area remains available while waiting for a recent location.") }
                 if let locationNotice { InfoNote(symbol: "location", text: locationNotice) }
@@ -75,6 +82,8 @@ struct PlannerView: View {
         .sheet(item: $placeDetail) { place in
             NearbyPlaceDetail(place: place, discovery: discovery) { chooseDestination(place) }
         }
+        .sheet(isPresented: $showRouteDetails) { RouteInspectionView(model: model) }
+        .sheet(isPresented: $showDepartureForecast) { ForecastEntryView(model: model) }
         .sheet(item: $walkTool, onDismiss: {
             guard let action = toolAction else { return }
             toolAction = nil
@@ -101,6 +110,7 @@ struct PlannerView: View {
                     .sheet(item: $fullMapPlace) { place in
                         NearbyPlaceDetail(place: place, discovery: discovery) { chooseDestination(place) }
                     }
+                    .sheet(isPresented: $showFullMapRouteDetails) { RouteInspectionView(model: model) }
             }
         }
         .confirmationDialog("Finish and save this walk?", isPresented: $confirmFinish, titleVisibility: .visible) {
@@ -177,6 +187,10 @@ struct PlannerView: View {
     private func map(expanded: Bool) -> some View {
         ExploreMapView(model: model, discovery: discovery, camera: $camera, style: $mapStyle, elevated: $elevated, showAir: $showAir, destination: destination, region: visibleRegion, expanded: expanded, select: { place in
             if expanded { fullMapPlace = place } else { placeDetail = place }
+        }, inspectRoute: { route in
+            if model.activeRoute == nil { model.selectedRoute = route.id }
+            showAir = true
+            if expanded { showFullMapRouteDetails = true } else { showRouteDetails = true }
         }, cameraChanged: { region in
             visibleRegion = region
             guard camera.positionedByUser, let centre = discovery.centre else { return }
@@ -185,7 +199,13 @@ struct PlannerView: View {
         }, useLocation: useCurrentLocation, expand: { expandedMap.toggle() })
     }
     @ViewBuilder private var airLegend: some View {
+        if !model.routes.isEmpty { RouteLineLegend().font(.caption2) }
         if showAir && (!(model.selected?.airSamples.isEmpty ?? true) || !discovery.airByPlace.isEmpty) { AirMapLegend() }
+    }
+    @ViewBuilder private var coverageBanner: some View {
+        if let route = model.activeRoute ?? model.selected {
+            RouteCoverageBanner(route: route, ventilation: model.intensity.ventilation) { showRouteDetails = true }
+        }
     }
     private var nearbyPlaces: some View {
         NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
@@ -234,6 +254,7 @@ struct PlannerView: View {
     @ViewBuilder private var routeOptions: some View {
         if let route = model.activeRoute {
             activeCard(route)
+            ActiveMotionCard(model: model, demo: route.demo)
             if !route.demo {
                 Button { walkTool = .rerouting } label: { Label("Open rerouting controls", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
             }
@@ -265,7 +286,8 @@ struct PlannerView: View {
     }
     private func routeCard(_ route: WalkRoute, index: Int) -> some View {
         let selected = model.selectedRoute == route.id
-        return Button { model.selectedRoute = route.id } label: {
+        let estimate = route.sampledEstimate(ventilation: model.intensity.ventilation)
+        return Button { model.selectedRoute = route.id; showAir = true; showRouteDetails = true } label: {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 12) {
                     Text(String(format: "%02d", index + 1)).font(.system(.caption, design: .monospaced).weight(.semibold)).foregroundStyle(selected ? Palette.deep : Palette.muted).frame(width: 34, height: 34).background(selected ? Palette.lime : Palette.canvas, in: RoundedRectangle(cornerRadius: 11))
@@ -280,11 +302,11 @@ struct PlannerView: View {
                 HStack(spacing: 0) {
                     routeMetric("\(Int(route.seconds / 60)) min", title: "time")
                     routeMetric(String(format: "%.2f km", route.metres/1000), title: "distance")
-                    routeMetric(route.estimate.observedDose.map { String(format: "%.1f µg", $0) } ?? "—", title: route.estimate.isComplete ? "est. dose" : "partial dose")
+                    routeMetric(estimate.observedDose.map { String(format: "%.1f µg", $0) } ?? "—", title: estimate.isComplete ? "est. dose" : "partial dose")
                 }
                 HStack(spacing: 9) {
-                    Capsule().fill(Palette.line).frame(width: 50, height: 3).overlay(alignment: .leading) { Capsule().fill(Palette.forest).frame(width: 50 * route.estimate.coverage, height: 3) }
-                    Text("\(Int(route.estimate.coverage * 100))% sampled coverage").font(.caption2).foregroundStyle(Palette.muted)
+                    Capsule().fill(Palette.line).frame(width: 50, height: 3).overlay(alignment: .leading) { Capsule().fill(Palette.forest).frame(width: 50 * estimate.coverage, height: 3) }
+                    Text("\(Int(estimate.coverage * 100))% sampled coverage").font(.caption2).foregroundStyle(Palette.muted)
                     Spacer()
                     if route.demo { Text("DEMO").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted) }
                 }
@@ -292,6 +314,7 @@ struct PlannerView: View {
                     Text(route.source).font(.caption2).foregroundStyle(Palette.muted)
                     if route.avoidedAreaCount > 0 { Label("\(route.avoidedAreaCount) sample areas avoided · geometry checked", systemImage: "checkmark.shield").font(.caption2).foregroundStyle(Palette.forest) }
                 }
+                Label("View pollution coverage & alternatives", systemImage: "map").font(.caption.weight(.semibold)).foregroundStyle(Palette.forest)
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(selected ? Palette.forest : Palette.line, lineWidth: selected ? 1.5 : 0.7))
@@ -312,6 +335,8 @@ struct PlannerView: View {
             Divider()
             HStack { Text("Recorded estimated dose").font(.subheadline); Spacer(); Text(doseText(model.activeEstimate.observedDose)).font(.headline) }
             InfoNote(text: model.trackingMessage)
+            if let saved = model.lastCheckpoint { Text("Recovery saved \(saved.formatted(date: .omitted, time: .shortened)) · \(model.recordedPath.count) GPS fixes").font(.caption2).foregroundStyle(Palette.muted) }
+            if let message = model.checkpointMessage { InfoNote(symbol: "exclamationmark.triangle", text: message) }
         }
     }
     @ViewBuilder private var walkAction: some View {
@@ -384,10 +409,7 @@ struct PlannerView: View {
     }
     private func focusRoutes() {
         guard !model.routes.isEmpty else { return }
-        let rect = model.routes.reduce(MKMapRect.null) { $0.union($1.polyline.boundingMapRect) }
-        if !rect.isNull {
-            moveCamera(.rect(rect.insetBy(dx: -max(300, rect.size.width * 0.3), dy: -max(500, rect.size.height * 0.5))))
-        }
+        moveCamera(.rect(RouteMapPresentation.bounds(model.routes)))
     }
     private func moveCamera(_ position: MapCameraPosition) {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) { camera = position }

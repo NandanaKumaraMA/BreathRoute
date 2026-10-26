@@ -11,7 +11,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     var body: some View {
         Group {
-            if !onboarded { WelcomeView(model: model) { onboarded = true; unlocked = true } }
+            if model.account.initializing { ProgressView("Opening your journal…") }
+            else if !onboarded { WelcomeView(model: model) { onboarded = true; unlocked = true } }
             else if biometricLock && !unlocked { lockScreen }
             else if sizeClass == .regular {
                 NavigationSplitView {
@@ -28,6 +29,8 @@ struct ContentView: View {
                 }
             }
         }
+        .id(model.accountScopeKey)
+        .task { model.startAccountObservation() }
         .tint(Palette.forest)
         .background(Palette.canvas)
         .onChange(of: phase) { _, next in

@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct BreathRouteApp: App {
+    @UIApplicationDelegateAdaptor(BreatheRouteAppDelegate.self) var delegate
     var body: some Scene {
         WindowGroup {
             ContentView()

@@ -2,13 +2,13 @@ import Foundation
 
 /// Units: concentration µg/m³, ventilation m³/min, duration minutes, dose µg.
 /// Missing or invalid samples never become zero-exposure observations.
-public struct ExposureSegment: Sendable {
+public struct ExposureSegment: Codable, Sendable {
     public let minutes: Double
     public let pm25: Double?
     public init(minutes: Double, pm25: Double?) { self.minutes = minutes; self.pm25 = pm25 }
 }
 
-public struct ExposureEstimate: Sendable {
+public struct ExposureEstimate: Codable, Sendable {
     public let observedDose: Double?
     public let coverage: Double
     public var isComplete: Bool { coverage >= 0.999999 }

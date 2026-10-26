@@ -25,6 +25,7 @@ struct ExploreMapView: View {
     var region: MKCoordinateRegion
     var expanded = false
     let select: (NearbyPlace) -> Void
+    let inspectRoute: (WalkRoute) -> Void
     let cameraChanged: (MKCoordinateRegion) -> Void
     let useLocation: () -> Void
     let expand: () -> Void
@@ -33,12 +34,7 @@ struct ExploreMapView: View {
         Map(position: $camera) {
             UserAnnotation()
             if showAir {
-                ForEach(model.selected?.airSamples ?? []) { sample in
-                    MapCircle(center: sample.coordinate, radius: 250)
-                        .foregroundStyle(AirMapStyle.colour(sample.reading).opacity(0.14))
-                        .stroke(AirMapStyle.colour(sample.reading).opacity(0.6), lineWidth: 1)
-                }
-                if model.activeRoute == nil && !model.demo {
+                if model.routes.isEmpty && model.activeRoute == nil && !model.demo {
                     ForEach(discovery.places.filter { discovery.airByPlace[$0.id] != nil }) { place in
                         MapCircle(center: place.coordinate, radius: 250)
                             .foregroundStyle(AirMapStyle.colour(discovery.airByPlace[place.id]).opacity(0.14))
@@ -46,9 +42,8 @@ struct ExploreMapView: View {
                     }
                 }
             }
-            ForEach(model.routes) { route in
-                MapPolyline(route.polyline).stroke(route.id == model.selectedRoute ? Palette.deep : Color.gray.opacity(0.6), style: StrokeStyle(lineWidth: route.id == model.selectedRoute ? 6 : 3, lineCap: .round, lineJoin: .round))
-            }
+            RouteComparisonLayers(routes: model.routes, selectedID: model.selectedRoute, showAir: showAir, allowSelection: model.activeRoute == nil, select: inspectRoute)
+            RecordedPathLayers(points: model.recordedPath)
             ForEach(model.remainingOptions) { route in
                 MapPolyline(route.polyline).stroke(Color(hex: 0x6E5BA8), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [7, 5]))
             }

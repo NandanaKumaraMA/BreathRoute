@@ -1,6 +1,6 @@
 # New advanced feature proposal
 
-Prepared on 7 October 2026 and updated on 8 October for the 31 October submission. The current Explore build implements nearby place discovery, type-ahead suggestions, map controls, retained samples and illustrative circles; see `MAP_EXPERIENCE.md`. Geofence awareness, ORS polygon requests and remaining-route switching have now been implemented and compile, but live/provider/physical-device verification remains incomplete; see `GEOFENCING_AND_ROUTING.md`. Forecasts, motion sensing and Live Activities remain proposed additions. Lecturer approval of additional scope has not been established. Existing authentication, persistence, API, accessibility and core walking work still needs completion.
+Prepared on 7 October 2026 and updated on 9 October for the 31 October submission. The current Explore build implements nearby place discovery, type-ahead suggestions, map controls, retained samples and illustrative circles; see `MAP_EXPERIENCE.md`. Geofence awareness, ORS polygon requests and remaining-route switching compile, but live/provider/physical-device verification remains incomplete; see `GEOFENCING_AND_ROUTING.md`. iPhone motion and optional daily Health activity are implemented; see `IPHONE_ACTIVITY.md`. Saved paths and explicit walk recovery are implemented; see `WALK_RECORDING_AND_RECOVERY.md`. Departure forecasting is now implemented with a verified provider response for public example geometry; see `DEPARTURE_FORECASTS.md`. Live Activities remain proposed. Authentication, accessibility and core live walking acceptance still need completion.
 
 ## Recommended flagship: pollution-aware geofencing and rerouting
 
@@ -46,11 +46,13 @@ This provides a coherent advanced MapKit/Core Location workflow, algorithmic dep
 
 ### 1. Departure-time forecast planner
 
+Implemented on 9 October after the student selected this addition. Today and Explore expose **When to walk**; route details also open it. See `DEPARTURE_FORECASTS.md` for the exact implementation and remaining acceptance checks.
+
 **User question:** “Would this walk have lower estimated exposure if I left later?”
 
-Add a **When to walk** screen: choose a destination and departure window, compare available hourly PM2.5 forecasts, then select a time and route. Show forecast concentration and modelled dose separately, with forecast timestamps, coverage and assumptions. Do not label a time medically safe.
+The **When to walk** screen compares departures on the currently selected route. Relative windows and a custom first-departure date/time are available. It shows forecast mean concentration and estimated dose separately, with fetch timestamps, coverage and assumptions. Optional local reminder code schedules one selected fully covered future departure. It does not label a time medically safe.
 
-OpenWeather documents hourly air-pollution forecasts for four days. This extends the connected provider rather than introducing another API account. Access with the configured key still needs verification. A route estimate must match each segment's anticipated arrival time to available forecasts; do not reuse the starting hour for an entire long walk.
+OpenWeather documents hourly air-pollution forecasts for four days. The configured connection returned live forecasts for both public Colombo example points on 9 October. This establishes the forecast endpoint separately from real route access. The calculation matches each retained spatial interval to its anticipated arrival times and integrates adjacent hourly values. It does not reuse the departure hour for an entire long walk or extrapolate beyond returned timestamps.
 
 **Technical work:** forecast decoding, bounded request reuse, temporal matching, route sampling, a testable comparison engine and Swift Charts.
 
@@ -59,6 +61,8 @@ OpenWeather documents hourly air-pollution forecasts for four days. This extends
 **Tests:** timestamp/time-zone boundaries, missing forecast hours, partial coverage, equal estimates, route duration crossing an hour and request reuse.
 
 ### 2. Motion-aware walk recording
+
+The initial phone-only implementation is now present, including opt-in pedometer updates, available fresh cadence/pace, confidence-aware classified time, optional daily Health activity, saved motion summaries and an isolated synthetic preview. It does not auto-pause exposure or suggest a pause yet. See `IPHONE_ACTIVITY.md` for recording rules, tests and remaining physical-device checks.
 
 **User question:** “How much of this session was actually spent walking?”
 
@@ -97,7 +101,7 @@ Use ActivityKit and a WidgetKit extension to display session time, recorded dist
 1. Complete core account/local-data isolation, verify real routing coverage, and add richer segment storage and session lifecycle.
 2. Implement and test the flagship's sample overlays, route comparison and monitoring lifecycle in that order.
 3. Add user-controlled rerouting. Use polygon avoidance only after the extra routing provider is verified; otherwise describe the feature accurately as ranking available alternatives.
-4. Treat departure-time forecasting as the next extension. Core Motion and a Live Activity remain optional until the main walk and geofencing journey is reliable.
+4. Validate the implemented Core Motion workflow on a physical iPhone and forecasting against actual route geometry. A Live Activity remains an optional extension requiring a clear background/staleness policy.
 5. Complete device/accessibility verification and report evidence by 27 October. Reserve 28–30 October for submission preparation.
 
 The proposed core demonstration becomes: **inspect sample areas → compare routes with reasons → begin a walk → receive a verified area-entry awareness message → compare and switch the remaining route → inspect the saved coverage**. Forecast planning and a Lock Screen presentation can extend this once reliable.
@@ -115,4 +119,4 @@ More features do not guarantee 70%+. This proposal targets relevance, integratio
 - [MapKit available alternative routes](https://developer.apple.com/documentation/mapkit/mkdirections/request/requestsalternateroutes)
 - [openrouteservice polygon-avoidance options](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/routing-options)
 
-SDK capabilities were checked against official sources on 7–8 October 2026. Geofence and avoidance-routing live/device verification remains outstanding. Forecast, motion and Live Activity implementation remains future work.
+SDK capabilities were checked against official sources on 7–9 October 2026. Geofence, avoidance-routing and motion device verification remains outstanding. Forecast calculation and provider access are implemented; its remaining UI/device acceptance is documented separately. Live Activity implementation remains future work.

@@ -18,27 +18,6 @@ struct SymptomEntry: Identifiable, Codable {
     var tripID: UUID?
 }
 
-struct TripEntry: Identifiable, Codable {
-    var id = UUID()
-    var date = Date()
-    var destination: String
-    var metres: Double
-    var seconds: Double
-    var dose: Double?
-    var coverage: Double
-    var demo: Bool
-    var complete: Bool
-}
-
-struct AirReading {
-    let pm25: Double
-    let aqi: Int
-    let date: Date
-    let demo: Bool
-    var label: String { [1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very poor"][aqi] ?? "Unavailable" }
-    var isFresh: Bool { Date().timeIntervalSince(date) < 3600 && date.timeIntervalSinceNow < 300 }
-}
-
 struct WalkRoute: Identifiable {
     let id = UUID()
     let name: String
@@ -51,12 +30,38 @@ struct WalkRoute: Identifiable {
     var source = "Illustrative demo"
     var avoidedAreaCount = 0
     var polyline: MKPolyline { MKPolyline(coordinates: coordinates, count: coordinates.count) }
+    func sampledEstimate(ventilation: Double) -> ExposureEstimate {
+        ExposureCalculator.estimate(airSamples.map { sample in
+            ExposureSegment(minutes: seconds / 60 * sample.timeFraction,
+                            pm25: sample.reading?.isFresh == true ? sample.reading?.pm25 : nil)
+        }, ventilation: ventilation)
+    }
 }
 
 struct RouteAirSample: Identifiable {
     let id = UUID()
     let coordinate: CLLocationCoordinate2D
     let reading: AirReading?
+    let timeFraction: Double
+}
+
+extension GeoCoordinate {
+    nonisolated init(_ coordinate: CLLocationCoordinate2D) { latitude = coordinate.latitude; longitude = coordinate.longitude }
+    nonisolated var mapCoordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
+}
+extension WalkRoute {
+    var snapshot: SavedRoute {
+        SavedRoute(name: name, coordinates: coordinates.map(GeoCoordinate.init), metres: metres, seconds: seconds,
+                   estimate: estimate, demo: demo, airSamples: airSamples.map { SavedAirSample(coordinate: GeoCoordinate($0.coordinate), reading: $0.reading, timeFraction: $0.timeFraction) },
+                   source: source, avoidedAreaCount: avoidedAreaCount)
+    }
+}
+extension SavedRoute {
+    var walkRoute: WalkRoute {
+        WalkRoute(name: name, coordinates: coordinates.map(\.mapCoordinate), metres: metres, seconds: seconds,
+                  estimate: estimate, demo: demo, airSamples: airSamples.map { RouteAirSample(coordinate: $0.coordinate.mapCoordinate, reading: $0.reading, timeFraction: $0.timeFraction) },
+                  source: source, avoidedAreaCount: avoidedAreaCount)
+    }
 }
 
 enum AppSection: String, CaseIterable, Identifiable {

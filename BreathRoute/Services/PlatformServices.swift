@@ -4,7 +4,6 @@ import CoreLocation
 import AVFoundation
 import LocalAuthentication
 import UserNotifications
-import HealthKit
 import Security
 
 @MainActor @Observable
@@ -77,42 +76,22 @@ enum KeyStore {
     }
 }
 
-@MainActor @Observable
-final class HealthService {
-    private let store = HKHealthStore()
-    var summary = "Optional health context. No readings imported."
-    var heartRate: Double?
-    var respiratoryRate: Double?
-    func connect() async {
-        guard HKHealthStore.isHealthDataAvailable(),
-              let heart = HKQuantityType.quantityType(forIdentifier: .heartRate),
-              let respiration = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) else {
-            summary = "Apple Health is unavailable on this device."; return
-        }
-        do {
-            try await store.requestAuthorization(toShare: [], read: [heart, respiration])
-            heartRate = try await latest(heart)
-            respiratoryRate = try await latest(respiration)
-            // HealthKit does not disclose whether read permission was denied.
-            summary = heartRate == nil && respiratoryRate == nil ? "No recent readable samples. Your walking-intensity estimate remains available." : "Recent samples from the past hour. Stored only on this device; not used to infer lung volume."
-        } catch { summary = "Health data could not be read: \(error.localizedDescription)" }
-    }
-    private func latest(_ type: HKQuantityType) async throws -> Double? {
-        try await withCheckedThrowingContinuation { continuation in
-            let predicate = HKQuery.predicateForSamples(withStart: Date().addingTimeInterval(-3600), end: Date(), options: .strictStartDate)
-            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1,
-                                      sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]) { _, samples, error in
-                if let error { continuation.resume(throwing: error); return }
-                let value = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
-                continuation.resume(returning: value)
-            }
-            store.execute(query)
-        }
-    }
-}
-
 @MainActor
 final class ReminderService {
+    func setDeparture(at date: Date) async throws -> Bool {
+        guard date.timeIntervalSinceNow >= 30 else { throw CocoaError(.coderInvalidValue) }
+        let center = UNUserNotificationCenter.current()
+        guard try await center.requestAuthorization(options: [.alert, .sound]) else { return false }
+        guard date.timeIntervalSinceNow >= 1 else { throw CocoaError(.coderInvalidValue) }
+        let content = UNMutableNotificationContent()
+        content.title = "Time to review your walk"
+        content.body = "Check current routes and air quality before leaving. Forecast conditions may have changed."
+        content.sound = .default
+        try await center.add(UNNotificationRequest(identifier: "departure-plan", content: content,
+                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false)))
+        return true
+    }
+    func cancelDeparture() { UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["departure-plan"]) }
     func setDaily(enabled: Bool, at date: Date) async throws -> Bool {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["daily-check-in"])

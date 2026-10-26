@@ -14,11 +14,17 @@ final class AppModel {
     var busy = false
     private var planGeneration = 0
     var demo = false
-    var name: String { didSet { UserDefaults.standard.set(name, forKey: "displayName") } }
-    var intensity: WalkingIntensity { didSet { UserDefaults.standard.set(intensity.rawValue, forKey: "intensity") } }
+    private(set) var accountScopeKey = "guest"
+    var name: String { didSet { UserDefaults.standard.set(name, forKey: profileKey("displayName")) } }
+    var intensity: WalkingIntensity { didSet { UserDefaults.standard.set(intensity.rawValue, forKey: profileKey("intensity")) } }
+    let account = AccountService()
+    var canChangeAccount: Bool { activeRoute == nil && pendingRecovery == nil && !unreadableRecovery && !busy && !remainingBusy && !account.working && !health.isReadingActivity && !health.isReadingVitals }
     let location = LocationService()
     let voice = VoiceService()
     let health = HealthService()
+    let forecasts = ForecastService()
+    let motion = MotionService()
+    private(set) var motionTrackingEnabled: Bool
     let geofences = GeofenceService()
     var remainingOptions: [WalkRoute] = []
     var remainingBusy = false
@@ -32,30 +38,73 @@ final class AppModel {
     var persistenceAvailable: Bool { repository != nil }
     var activeRoute: WalkRoute?
     var walkStarted: Date?
-    var trackedMetres = 0.0
-    var trackedSeconds = 0.0
-    var trackedSegments: [ExposureSegment] = []
+    private var recorder = WalkRecorder()
+    var trackedMetres: Double { recorder.metres }
+    var trackedSeconds: Double { recorder.recordedSeconds }
+    var trackedSegments: [ExposureSegment] { recorder.segments }
+    var recordedPath: [RecordedPathPoint] { recorder.path }
+    private(set) var pendingRecovery: ActiveWalkCheckpoint?
+    private(set) var unreadableRecovery = false
+    private(set) var lastCheckpoint: Date?
+    private(set) var checkpointMessage: String?
+    private var sessionID: UUID?
+    private var sessionVentilation: Double?
+    private var recoveredSession = false
+    @ObservationIgnored private var checkpointTimer: Timer?
     var trackingMessage = "Waiting for accurate location updates."
-    private var lastLocation: CLLocation?
     private var lastRefresh: Date?
     private var refreshing = false
     private var destinationName = "Walk"
     private var foreground = true
-    var activeEstimate: ExposureEstimate { ExposureCalculator.estimate(trackedSegments, ventilation: intensity.ventilation) }
+    var activeEstimate: ExposureEstimate { ExposureCalculator.estimate(trackedSegments, ventilation: sessionVentilation ?? intensity.ventilation) }
 
     init() {
         name = UserDefaults.standard.string(forKey: "displayName") ?? ""
         intensity = WalkingIntensity(rawValue: UserDefaults.standard.string(forKey: "intensity") ?? "") ?? .easy
-        do {
-            repository = try LocalStore()
-            symptoms = try repository!.read("symptom", as: SymptomEntry.self).sorted { $0.date > $1.date }
-            trips = try repository!.read("trip", as: TripEntry.self).sorted { $0.date > $1.date }
-        } catch { self.error = "Local storage could not be opened. Your existing data has not been reset. \(error.localizedDescription)" }
+        motionTrackingEnabled = UserDefaults.standard.bool(forKey: "motionTrackingEnabled")
+        openJournal(accountNamespace: nil)
         location.onUpdate = { [weak self] location in
             guard let self else { return }
             self.recordLocation(location)
             if self.activeRoute != nil { self.geofences.evaluate(location) }
         }
+    }
+    func startAccountObservation() {
+        account.onIdentityChange = { [weak self] identity in self?.changeAccount(to: identity) }
+        account.start()
+    }
+    private func profileKey(_ key: String) -> String { accountScopeKey == "guest" ? key : "\(accountScopeKey).\(key)" }
+    private func changeAccount(to identity: AccountIdentity?) {
+        let next = identity?.journalNamespace ?? "guest"
+        guard next != accountScopeKey else { return }
+        let interrupted = activeRoute != nil
+        if interrupted { checkpoint() }
+        stopRecording(); cancelPlanning(); remainingTask?.cancel()
+        routes = []; selectedRoute = nil; demo = false; air = nil; plannedStart = nil; plannedDestination = nil
+        routeNotice = nil; remainingNotice = nil; remainingBusy = false; refreshing = false
+        // Clear old values before opening a different user's store; never fall back to their records on failure.
+        symptoms = []; trips = []; pendingRecovery = nil; unreadableRecovery = false; repository = nil
+        accountScopeKey = next; health.resetForAccountChange(); forecasts.clearForAccountChange()
+        name = UserDefaults.standard.string(forKey: profileKey("displayName")) ?? ""
+        intensity = WalkingIntensity(rawValue: UserDefaults.standard.string(forKey: profileKey("intensity")) ?? "") ?? .easy
+        openJournal(accountNamespace: identity?.journalNamespace); section = .profile
+        if interrupted { error = "The account session changed. The unfinished walk remains saved in its original journal. Sign back into that account to recover it." }
+    }
+    private func openJournal(accountNamespace: String?) {
+        do { repository = try LocalStore(accountNamespace: accountNamespace) }
+        catch { self.error = "This journal could not be opened. Existing data has not been reset."; return }
+        guard let repository else { return }
+        do { symptoms = try repository.read("symptom", as: SymptomEntry.self).sorted { $0.date > $1.date } }
+        catch { self.error = "Symptom records could not be read. They have not been reset." }
+        do { trips = try repository.read("trip", as: TripEntry.self).sorted { $0.date > $1.date } }
+        catch { self.error = "Walk records could not be read. They have not been reset." }
+        do {
+            let drafts = try repository.read("active-walk", as: ActiveWalkCheckpoint.self)
+            if let draft = drafts.first {
+                guard drafts.count == 1, draft.isValid else { throw CocoaError(.coderReadCorrupt) }
+                pendingRecovery = draft; section = .routes
+            }
+        } catch { unreadableRecovery = true; checkpointMessage = "An unfinished walk could not be read. It remains stored; discard it explicitly before starting another walk." }
     }
     func save(_ entry: SymptomEntry) -> Bool {
         guard let repository else { error = "Local storage is unavailable. Your note has not been saved."; return false }
@@ -65,12 +114,14 @@ final class AppModel {
         } catch { self.error = "Could not save the symptom: \(error.localizedDescription)"; return false }
     }
     func deleteSymptom(_ entry: SymptomEntry) {
-        do { try repository?.delete(id: entry.id); symptoms.removeAll { $0.id == entry.id } }
+        guard let repository else { error = "Local storage is unavailable. The note has not been deleted."; return }
+        do { try repository.delete(id: entry.id); symptoms.removeAll { $0.id == entry.id } }
         catch { self.error = error.localizedDescription }
     }
     func deleteTrip(_ entry: TripEntry) {
         // Linked notes are preserved; the UI treats a deleted trip as unavailable.
-        do { try repository?.delete(id: entry.id); trips.removeAll { $0.id == entry.id } }
+        guard let repository else { error = "Local storage is unavailable. The walk has not been deleted."; return }
+        do { try repository.delete(id: entry.id); trips.removeAll { $0.id == entry.id } }
         catch { self.error = error.localizedDescription }
     }
     func loadDemo() {
@@ -86,11 +137,15 @@ final class AppModel {
         guard let coordinate = location.location?.coordinate else {
             location.request(); error = "Allow location and wait for a fix, then refresh. Manual route search is also available in Explore."; return
         }
-        busy = true; defer { busy = false }
-        do { air = try await AirService().fetch(at: coordinate, key: KeyStore.read("openweather")) }
-        catch { self.error = error.localizedDescription }
+        let scope = accountScopeKey
+        busy = true; defer { if accountScopeKey == scope { busy = false } }
+        do {
+            let reading = try await AirService().fetch(at: coordinate, key: KeyStore.read("openweather"))
+            guard accountScopeKey == scope else { return }; air = reading
+        } catch { if accountScopeKey == scope { self.error = error.localizedDescription } }
     }
     func plan(start: CLLocationCoordinate2D, destination: MKMapItem) async {
+        guard activeRoute == nil, pendingRecovery == nil, !unreadableRecovery else { error = "Resolve the unfinished walk before planning a new one."; return }
         planGeneration += 1; let ticket = planGeneration
         busy = true; routes = []; selectedRoute = nil; demo = false; air = nil; routeNotice = nil
         defer { if ticket == planGeneration { busy = false } }
@@ -108,50 +163,128 @@ final class AppModel {
     }
     func cancelPlanning() { planGeneration += 1; busy = false }
     func start(_ route: WalkRoute) {
+        guard activeRoute == nil, pendingRecovery == nil, !unreadableRecovery, let repository else {
+            error = "Resolve the unfinished walk first, or check that local storage is available."; return
+        }
+        let now = Date(), id = UUID()
+        let initial = ActiveWalkCheckpoint(sessionID: id, startedAt: now, savedAt: now, destination: destinationName,
+                                           route: route.snapshot, recorder: WalkRecorder(), ventilation: intensity.ventilation,
+                                           activity: nil, recovered: false)
+        guard initial.isValid else { error = "The route could not be prepared for a recoverable walk."; return }
+        do { try repository.save(initial, id: ActiveWalkCheckpoint.storageID, kind: "active-walk") }
+        catch { self.error = "The walk could not start because its recovery record could not be saved."; return }
         remainingOptions = []; geofences.stop()
-        activeRoute = route; walkStarted = Date(); trackedMetres = 0; trackedSeconds = 0; trackedSegments = []; lastLocation = nil; lastRefresh = nil
+        activeRoute = route; walkStarted = now; recorder = WalkRecorder(); lastRefresh = nil
+        sessionID = id; sessionVentilation = intensity.ventilation; recoveredSession = false
+        lastCheckpoint = now; checkpointMessage = nil; startCheckpointTimer()
         trackingMessage = route.demo ? "Demo session: no live movement or exposure is recorded." : "Foreground tracking. Keep the app open; background intervals are excluded."
-        if !route.demo { location.request() }
+        if !route.demo {
+            motion.beginSession(at: walkStarted!, enabled: motionTrackingEnabled, foreground: foreground)
+            location.request()
+        } else { motion.endSession() }
+    }
+    func setMotionTracking(_ enabled: Bool) {
+        motionTrackingEnabled = enabled; UserDefaults.standard.set(enabled, forKey: "motionTrackingEnabled")
+        motion.setEnabled(enabled)
+        checkpoint()
     }
     func setForeground(_ active: Bool) {
         foreground = active
-        if !active { lastLocation = nil }
-        if active && activeRoute != nil { trackingMessage = "Tracking resumed. Any background gap is excluded." }
+        motion.setForeground(active)
+        if !active { recorder.breakPath() }
+        if active && activeRoute?.demo == false { trackingMessage = "Tracking resumed. Any background gap is excluded." }
+        checkpoint()
     }
     private func recordLocation(_ current: CLLocation) {
-        guard foreground, let route = activeRoute, !route.demo else { return }
-        defer { lastLocation = current }
-        if let previous = lastLocation {
-            let seconds = current.timestamp.timeIntervalSince(previous.timestamp)
-            let metres = current.distance(from: previous)
-            if seconds > 0 && seconds <= 30 && metres / seconds < 4 {
-                trackedSeconds += seconds; trackedMetres += metres
-                let reading = air
-                let pm = reading?.demo == false && reading?.isFresh == true ? reading?.pm25 : nil
-                trackedSegments.append(.init(minutes: seconds / 60, pm25: pm))
-                trackingMessage = pm == nil ? "GPS active. Pollution data unavailable for this interval." : "GPS active. Dose uses the latest available modelled pollution reading."
-            } else { trackingMessage = "A tracking gap or inaccurate jump was excluded." }
+        guard foreground, let route = activeRoute, !route.demo, let started = walkStarted, current.timestamp >= started, current.timestamp <= Date() else { return }
+        let distance = recorder.previous.map { current.distance(from: CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)) }
+        let pm = air?.demo == false && air?.isFresh == true ? air?.pm25 : nil
+        let result = recorder.record(coordinate: GeoCoordinate(current.coordinate), date: current.timestamp,
+                                     accuracy: current.horizontalAccuracy, metresFromPrevious: distance, pm25: pm)
+        switch result {
+        case .recorded: trackingMessage = pm == nil ? "GPS active. Pollution data unavailable for this interval." : "GPS active. Dose uses the latest available modelled pollution reading."
+        case .gap: trackingMessage = "A tracking gap or inaccurate jump was excluded. A new recorded path section begins here."
+        case .started: trackingMessage = "Recording a new GPS path section. Unobserved gaps remain excluded."
+        case .ignored: return
         }
+        checkpoint()
         if !refreshing && (lastRefresh == nil || Date().timeIntervalSince(lastRefresh!) > 60) {
             refreshing = true; lastRefresh = Date()
+            let ticket = sessionID
             Task {
                 defer { refreshing = false }
-                do { air = try await AirService().fetch(at: current.coordinate, key: KeyStore.read("openweather")) }
-                catch { air = nil; trackingMessage = "GPS active. Air-quality update failed; exposure coverage is incomplete." }
+                do {
+                    let reading = try await AirService().fetch(at: current.coordinate, key: KeyStore.read("openweather"))
+                    guard sessionID == ticket, activeRoute != nil else { return }; air = reading
+                } catch {
+                    guard sessionID == ticket, activeRoute != nil else { return }
+                    air = nil; trackingMessage = "GPS active. Air-quality update failed; exposure coverage is incomplete."
+                }
             }
         }
     }
     func finish() {
-        guard let route = activeRoute, let start = walkStarted, let repository else { error = "No active walk or storage unavailable."; return }
-        let estimate = activeEstimate
-        let entry = TripEntry(date: start, destination: route.demo ? "Demo · \(route.name)" : destinationName,
-                              metres: trackedMetres, seconds: max(0, Date().timeIntervalSince(start)),
-                              dose: estimate.observedDose, coverage: trackedSeconds > 0 ? min(1, estimate.coverage * trackedSeconds / max(1, Date().timeIntervalSince(start))) : 0,
-                              demo: route.demo, complete: false)
+        guard activeRoute != nil, let repository else { error = "No active walk or storage unavailable."; return }
+        let end = Date()
+        guard let draft = makeCheckpoint(at: end), draft.isValid else { error = "The active walk could not be prepared for saving. Check the device clock and try again."; return }
+        let entry = draft.trip(endedAt: end)
         do {
-            try repository.save(entry, id: entry.id, kind: "trip")
-            trips.insert(entry, at: 0); activeRoute = nil; walkStarted = nil; location.stop(); voice.stop(); geofences.stop(); remainingTask?.cancel(); remainingOptions = []; section = .journal
+            try repository.finish(entry, tripID: entry.id, draftID: ActiveWalkCheckpoint.storageID)
+            trips.removeAll { $0.id == entry.id }; trips.insert(entry, at: 0)
+            stopRecording(); section = .journal
         } catch { self.error = "Walk remains open because saving failed: \(error.localizedDescription)" }
+    }
+    func resumeRecovery() {
+        guard let draft = pendingRecovery, draft.isValid, activeRoute == nil, Date() >= draft.savedAt else {
+            error = "This recovery record is invalid or the device clock is earlier than its last save. It has not been discarded."; return
+        }
+        let route = draft.route.walkRoute
+        activeRoute = route; routes = [route]; selectedRoute = route.id; demo = route.demo
+        walkStarted = draft.startedAt; destinationName = draft.destination; sessionID = draft.sessionID
+        sessionVentilation = draft.ventilation; recoveredSession = true; recorder = draft.recorder; recorder.breakPath()
+        plannedStart = route.coordinates.first
+        if let end = route.coordinates.last { plannedDestination = MKMapItem(placemark: MKPlacemark(coordinate: end)); plannedDestination?.name = draft.destination }
+        air = nil; lastRefresh = nil; remainingOptions = []; pendingRecovery = nil
+        trackingMessage = route.demo ? "Recovered demo: no actual movement or exposure was recorded." : "Walk recovered. Recorded portions are retained; the closed-app gap remains unobserved."
+        if !route.demo { motion.beginSession(at: draft.startedAt, enabled: motionTrackingEnabled, foreground: foreground, restoring: draft.activity, checkpointedAt: draft.savedAt); location.request() }
+        startCheckpointTimer(); checkpoint(); section = .routes
+    }
+    func saveRecoveryPortion() {
+        guard let draft = pendingRecovery, let repository else { return }
+        let entry = draft.trip(endedAt: draft.savedAt)
+        do {
+            try repository.finish(entry, tripID: entry.id, draftID: ActiveWalkCheckpoint.storageID)
+            trips.removeAll { $0.id == entry.id }; trips.insert(entry, at: 0); pendingRecovery = nil; checkpointMessage = nil; section = .journal
+        } catch { self.error = "The recovery record remains available because saving failed." }
+    }
+    func discardRecovery() {
+        guard activeRoute == nil, let repository else { return }
+        do { try repository.delete(id: ActiveWalkCheckpoint.storageID); pendingRecovery = nil; unreadableRecovery = false; checkpointMessage = nil }
+        catch { self.error = "The unfinished walk could not be discarded." }
+    }
+    private func makeCheckpoint(at date: Date) -> ActiveWalkCheckpoint? {
+        guard let route = activeRoute, let started = walkStarted, let sessionID, let sessionVentilation else { return nil }
+        return ActiveWalkCheckpoint(sessionID: sessionID, startedAt: started, savedAt: date, destination: destinationName,
+                                    route: route.snapshot, recorder: recorder, ventilation: sessionVentilation,
+                                    activity: route.demo ? nil : motion.summary(at: date), recovered: recoveredSession)
+    }
+    private func checkpoint() {
+        let now = Date()
+        guard let draft = makeCheckpoint(at: now), let repository else { return }
+        guard draft.isValid else { checkpointMessage = "Recovery could not be updated. Check the device clock; the previous saved portion remains available."; return }
+        do { try repository.save(draft, id: ActiveWalkCheckpoint.storageID, kind: "active-walk"); lastCheckpoint = now; checkpointMessage = nil }
+        catch { checkpointMessage = "Recovery save failed. Keep this walk open and retry finishing before closing the app." }
+    }
+    private func startCheckpointTimer() {
+        checkpointTimer?.invalidate()
+        let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.checkpoint() } }
+        checkpointTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func stopRecording() {
+        checkpointTimer?.invalidate(); checkpointTimer = nil
+        activeRoute = nil; walkStarted = nil; sessionID = nil; sessionVentilation = nil
+        location.stop(); motion.endSession(); voice.stop(); geofences.stop(); remainingTask?.cancel(); remainingOptions = []
+        checkpointMessage = nil; lastCheckpoint = nil; recorder = WalkRecorder(); air = nil
     }
     var selected: WalkRoute? { routes.first { $0.id == selectedRoute } }
     var bestRouteID: UUID? {
@@ -184,7 +317,7 @@ final class AppModel {
             }
             if routes.count == previousCount { routeNotice = "The provider returned an existing path. No distinct avoidance option was added." }
         } catch is CancellationError { }
-        catch { if ticket == planGeneration { self.error = error.localizedDescription } }
+        catch { if ticket == planGeneration { self.routeNotice = error.localizedDescription } }
     }
     func compareRemaining(avoidAreas: Bool) {
         guard let route = activeRoute, !route.demo else { return }
@@ -220,6 +353,7 @@ final class AppModel {
         remainingNotice = nil
         geofences.replace(samples: watchSamples); geofences.clearEntry()
         trackingMessage = "Remaining route changed. Completed recorded intervals are preserved."
+        checkpoint()
     }
     private func avoidableAreas(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D) -> [WatchArea] {
         WatchAreaPolicy.select(watchSamples, now: Date()).filter {

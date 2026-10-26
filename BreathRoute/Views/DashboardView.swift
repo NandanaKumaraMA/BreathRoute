@@ -4,6 +4,7 @@ import Charts
 struct DashboardView: View {
     @Bindable var model: AppModel
     @State private var addingSymptom = false
+    @State private var showDepartureForecast = false
     @Environment(\.dynamicTypeSize) private var typeSize
     private var realTrips: [TripEntry] { model.trips.filter { !$0.demo } }
     private var weekTrips: [TripEntry] { realTrips.filter { $0.date >= Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: Date()))! } }
@@ -23,14 +24,18 @@ struct DashboardView: View {
                     Eyebrow(text: model.name.isEmpty ? Date().formatted(.dateTime.weekday(.wide).month().day()) : "Hello, \(model.name)")
                     Text("Make room\nfor a better walk.").font(.system(.largeTitle, design: .serif).weight(.medium)).foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
                 }
+                RecoveryCard(model: model)
                 if geometry.size.width >= 740 {
                     HStack(alignment: .top, spacing: 22) { VStack(spacing: 22) { airCard; exploreCard }; VStack(spacing: 22) { weekCard; symptomCard } }
                 } else { airCard; weekCard; exploreCard; symptomCard }
+                ForecastLauncher(active: model.activeRoute != nil) { showDepartureForecast = true }
+                if model.health.dailyActivity != nil { HealthActivityCard(health: model.health) }
                 InfoNote(text: "Estimates support awareness. They do not diagnose symptoms or guarantee a route is safe.")
             }
         }
         .adaptiveNavigationBar()
         .sheet(isPresented: $addingSymptom) { SymptomEditor(model: model, entry: SymptomEntry()) }
+        .sheet(isPresented: $showDepartureForecast) { ForecastEntryView(model: model) }
     }
     private var airCard: some View {
         VStack(alignment: .leading, spacing: 20) {

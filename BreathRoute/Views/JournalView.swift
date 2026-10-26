@@ -157,7 +157,15 @@ struct TripDetailView: View {
                 HStack { Text("Time coverage").font(.subheadline); Spacer(); Text("\(Int(trip.coverage*100))%").font(.headline) }
                 ProgressView(value: trip.coverage).tint(Palette.forest)
                 InfoNote(text: "Unobserved intervals are excluded. An incomplete recording may understate your total exposure.")
+                if trip.recovered == true { InfoNote(symbol: "arrow.counterclockwise", text: "This walk was recovered after reopening the app. Closed-app gaps are excluded from recorded movement and dose.") }
+                if let ventilation = trip.ventilation { Text("Breathing-volume assumption: \(Int(ventilation * 1000)) L/min.").font(.caption).foregroundStyle(Palette.muted) }
             }
+            if !(trip.recordedPath?.isEmpty ?? true) || !(trip.plannedPath?.isEmpty ?? true) {
+                RecordedPathView(points: trip.recordedPath ?? [], planned: trip.plannedPath ?? [], demo: trip.demo)
+                if let source = trip.routeSource { Text("Last planned route: \(source)").font(.caption2).foregroundStyle(Palette.muted) }
+            } else { InfoNote(text: "This earlier walk has no saved path. Its recorded summary remains available.") }
+            if let activity = trip.activity { SavedActivityCard(summary: activity) }
+            else { InfoNote(text: trip.demo ? "Demo session: no actual phone activity was recorded." : "This walk has no saved phone activity summary. Earlier walks remain available.") }
             let linked = model.symptoms.filter { $0.tripID == trip.id }
             Surface {
                 SectionHeading(title: "Linked symptom notes", detail: "\(linked.count)")

@@ -20,18 +20,20 @@ Components 1–3 are mandatory: zero in any results in module failure. A 70%+ ta
 | Area | Current state | Work before claiming completion |
 | --- | --- | --- |
 | Visual design | Redesigned screens, a shared visual system and native navigation | Review each journey on small iPhone, large text, dark mode and iPad; refresh Figma to match the app |
-| Authentication | Local profile and device-authentication app lock | Firebase registration, sign-in/out, password reset and session restoration |
+| Authentication | Firebase SDK/forms and separate account/guest journals; native emulator sign-in, restoration, sign-out, reset request and two-account isolation verified on 16 October | Student must create real project/configuration; verify native registration, inbox delivery, error/expiry/unfinished-walk cases and accessibility |
 | Air-quality API | Real OpenWeather response verified on 7 October; key stored in the development iPhone simulator's Keychain; clearer credential/quota/network errors | Test failure paths; add cache, freshness policy and request reuse |
+| Departure forecasts | Hourly OpenWeather client, retained route samples matched to arrival times, Swift Charts, coverage-aware ranking, custom/relative windows and local reminder code; real forecast response verified for public example points on 9 October | Verify against real routed geometry, reminder permission/delivery/relaunch, stale/partial network states, custom-time UI and accessibility |
 | Routing | Type-ahead and nearby search; bounded sampling; ORS walking/avoidance requests; geometry checks and comparable route policy | MapKit walking request failed in the tested Colombo area. Configure ORS key and verify live paths, alternatives, account limits and avoidance |
-| Route pollution overlays | Selected route uses one colour | Persist segment readings and draw lower/moderate/higher/missing segments with equivalent text descriptions |
-| Active walk | Foreground GPS/dose; gap handling; optional sample-area awareness and explicit remaining-route switching | Verify native regions and switching on-device; background tracking, session recovery, deviation and final completeness status |
-| HealthKit | Optional recent heart/respiratory samples displayed on-device | Further integration must have a defensible model and a clear effect on the user journey; current context display alone is limited advanced evidence |
-| Persistence | Core Data trip and symptom CRUD | Test reopening, corrupt/error cases and linked-record deletion; add versioned migrations and richer route records |
+| Route pollution overlays | Route details show selected/alternative paths, numbered sample circles, PM2.5/AQI/time and sampled-time coverage | Verify live and missing/stale displays; add segment colouring only with a defensible interpolation policy |
+| Active walk | Foreground GPS/dose; saved paths and replay; explicit relaunch recovery; optional sample-area awareness and remaining-route switching | Verify GPS recovery, native regions and switching on-device; background tracking and deviation remain separate work |
+| HealthKit | Read-only daily steps/walking distance; optional source/time-labelled heart/respiratory records; no Watch dependency | Verify genuine readable records and denied/empty states on a consenting physical device; keep activity separate from pollution modelling |
+| Core Motion | Opt-in foreground steps, fresh available cadence/pace, classified walking/stationary time and saved activity summary; synthetic preview | Verify real sensors, permissions, delayed callbacks and lifecycle on iPhone; simulator preview does not prove sensor measurements |
+| Persistence | Core Data trip/symptom CRUD, optional GPS geometry, versioned active checkpoint and atomic trip completion | Isolated SQLite reopen, completion retry and save-failure tests pass; verify corrupt-store UI, linked deletion and future migrations |
 | Notifications | Daily local check-in; optional in-walk area-awareness notification/cooldown and in-app state | Verify delivery/denial/expiry on a physical device; confirm whether remote push/APNs is required |
-| Firebase/Firestore | Not integrated | Configure a project; implement owner-only rules, account-scoped data, summary-only sync, retries, deletions and conflicts |
+| Firebase/Firestore | Authentication integrated; Firestore not linked or implemented | Configure the real project, then implement owner-only rules, consented summary sync, retries, deletions and conflicts |
 | Symptoms/history | Notes, linked walks, date filters, details and sharing | Expand daily/weekly insights and restored-summary/incomplete states without causal claims |
 | Accessibility | Semantic labels, system text styles, non-colour selection indicators, Reduce Motion-aware buttons | Complete real VoiceOver walkthrough, largest text sizes, contrast and touch-target checks |
-| Unit testing | 21 Swift Testing functions covering exposure, nearby ranking, geofence policy, geometry, decoding and recommendation limits | Inject services and add persistence/network/tracking integration checks; sync verification |
+| Unit testing | 45 Swift Testing functions, including account validation/isolation, forecasts, motion/GPS gaps, checkpoint validation, legacy compatibility and Core Data reopen/atomic-finish/failure integration; separate local Auth-emulator assertions | Add permission/network/tracking integration checks and real-project/sync verification |
 | iPad | Sidebar and wider dashboard/planner composition; closing/reopening the sidebar verified after a navigation-bar fix | Verify landscape, narrow multitasking, keyboard interaction and explanation for LO1 |
 
 ## Advanced features to prioritise
@@ -79,7 +81,7 @@ The final report should include: problem/target audience, approved scope, archit
 
 ## Setup information still needed
 
-- Firebase project has not yet been created, as confirmed by the student on 7 October. Follow `FIREBASE_SETUP.md`; the iOS bundle identifier is `MANKumara.BreathRoute`.
+- Firebase project has not yet been created, reconfirmed by the student on 16 October. Account code/local verification are now present. Follow `FIREBASE_SETUP.md`; the iOS bundle identifier is `MANKumara.BreathRoute`.
 - OpenWeather key supplied and configured on the development iPhone simulator. Real API data verified at a simulated public Colombo location. Other devices require their own Keychain setup.
 - Physical test device and Apple signing-team availability.
 - Confirmed approved MVP and the lecturer's interpretation of notifications and the updated AI-assistance rules.

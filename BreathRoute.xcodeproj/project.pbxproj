@@ -6,14 +6,28 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B6A0F1000000000000000001 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B6A0F1000000000000000003 /* FirebaseAuth */; };
+		B6A0F1000000000000000002 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = B6A0F1000000000000000004 /* FirebaseCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A24B7EBE3076093D00EC45AF /* BreathRoute.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BreathRoute.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B6A0F1000000000000000006 /* AppInfo exception */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (AppInfo.plist, );
+			target = A24B7EBD3076093D00EC45AF /* BreathRoute */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A24B7EC03076093D00EC45AF /* BreathRoute */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = BreathRoute;
+			exceptions = (B6A0F1000000000000000006 /* AppInfo exception */, );
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +37,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B6A0F1000000000000000001 /* FirebaseAuth in Frameworks */,
+				B6A0F1000000000000000002 /* FirebaseCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +81,8 @@
 			);
 			name = BreathRoute;
 			packageProductDependencies = (
+				B6A0F1000000000000000003 /* FirebaseAuth */,
+				B6A0F1000000000000000004 /* FirebaseCore */,
 			);
 			productName = BreathRoute;
 			productReference = A24B7EBE3076093D00EC45AF /* BreathRoute.app */;
@@ -94,6 +112,9 @@
 			);
 			mainGroup = A24B7EB53076093D00EC45AF;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B6A0F1000000000000000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A24B7EBF3076093D00EC45AF /* Products */;
 			projectDirPath = "";
@@ -254,11 +275,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BreathRoute/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BreatheRoute;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock your private BreatheRoute journal using Face ID.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally displays recent heart rate and respiratory rate as on-device health context.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally reads today's steps and walking distance, or recent heart and breathing records, as on-device context. These records do not change your pollution estimate.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With your permission, BreatheRoute monitors sampled air-quality areas during an active walk for optional area-entry awareness. These areas are approximate.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "BreatheRoute uses your location to plan walking routes and record a walk while the app is open.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "BreatheRoute optionally uses your iPhone's motion sensors to record steps, available pace and walking or stationary context during a walk. No Apple Watch is required.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -291,11 +314,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BreathRoute/AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BreatheRoute;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock your private BreatheRoute journal using Face ID.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally displays recent heart rate and respiratory rate as on-device health context.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "BreatheRoute optionally reads today's steps and walking distance, or recent heart and breathing records, as on-device context. These records do not change your pollution estimate.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "With your permission, BreatheRoute monitors sampled air-quality areas during an active walk for optional area-entry awareness. These areas are approximate.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "BreatheRoute uses your location to plan walking routes and record a walk while the app is open.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "BreatheRoute optionally uses your iPhone's motion sensors to record steps, available pace and walking or stationary context during a walk. No Apple Watch is required.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -340,6 +365,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B6A0F1000000000000000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = exactVersion;
+				version = 13.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B6A0F1000000000000000003 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B6A0F1000000000000000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		B6A0F1000000000000000004 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B6A0F1000000000000000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A24B7EB63076093D00EC45AF /* Project object */;
 }
