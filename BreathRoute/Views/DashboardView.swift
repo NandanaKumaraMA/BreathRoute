@@ -1,144 +1,177 @@
 import SwiftUI
-import Charts
 
+/// Today: one answer ("how is the air?"), one action ("plan a walk"), everything else quiet.
 struct DashboardView: View {
     @Bindable var model: AppModel
     @State private var addingSymptom = false
     @State private var showDepartureForecast = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-    private var realTrips: [TripEntry] { model.trips.filter { !$0.demo } }
-    private var weekTrips: [TripEntry] { realTrips.filter { $0.date >= Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: Date()))! } }
+
+    private var weekTrips: [TripEntry] {
+        let start = Calendar.current.date(byAdding: .day, value: -6, to: Calendar.current.startOfDay(for: Date()))!
+        return model.trips.filter { !$0.demo && $0.date >= start }
+    }
+
     var body: some View {
-        GeometryReader { geometry in
-            Page {
-                HStack(spacing: 10) {
-                    BrandMark()
-                    Text("breathe route").font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Palette.ink)
-                    Spacer()
-                    Button { model.section = .profile } label: {
-                        Text(model.name.first.map { String($0).uppercased() } ?? "You").font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Palette.forest).frame(width: 44, height: 44).background(Palette.surface, in: Circle()).overlay(Circle().stroke(Palette.line, lineWidth: 1))
-                    }.accessibilityLabel("Open profile and settings")
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    Eyebrow(text: model.name.isEmpty ? Date().formatted(.dateTime.weekday(.wide).month().day()) : "Hello, \(model.name)")
-                    Text("Make room\nfor a better walk.").font(.system(.largeTitle, design: .serif).weight(.medium)).foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
-                }
-                RecoveryCard(model: model)
-                if geometry.size.width >= 740 {
-                    HStack(alignment: .top, spacing: 22) { VStack(spacing: 22) { airCard; exploreCard }; VStack(spacing: 22) { weekCard; symptomCard } }
-                } else { airCard; weekCard; exploreCard; symptomCard }
-                ForecastLauncher(active: model.activeRoute != nil) { showDepartureForecast = true }
-                if model.health.dailyActivity != nil { HealthActivityCard(health: model.health) }
-                InfoNote(text: "Estimates support awareness. They do not diagnose symptoms or guarantee a route is safe.")
-            }
+        Page {
+            topBar
+            greeting
+            RecoveryCard(model: model)
+            hero
+            weekSummary
+            moreRows
+            if model.health.dailyActivity != nil { HealthActivityCard(health: model.health) }
+            Text("Estimates support awareness. They are not medical advice.")
+                .font(.caption).foregroundStyle(Palette.muted)
         }
         .adaptiveNavigationBar()
         .sheet(isPresented: $addingSymptom) { SymptomEditor(model: model, entry: SymptomEntry()) }
         .sheet(isPresented: $showDepartureForecast) { ForecastEntryView(model: model) }
     }
-    private var airCard: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Label("AIR AROUND YOU", systemImage: "location.fill").font(.system(.caption2, design: .monospaced).weight(.medium)).tracking(1.3)
-                Spacer()
-                Button { Task { await model.refreshAir() } } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).background(.white.opacity(0.07), in: Circle()) }
-                    .accessibilityLabel("Refresh current air quality").disabled(model.busy || model.demo)
-            }.foregroundStyle(.white.opacity(0.85))
-            Group {
-                if typeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 18) { airReading; AirQualityDial(reading: model.air) }
-                } else {
-                    HStack(spacing: 8) { airReading.frame(maxWidth: .infinity, alignment: .leading); AirQualityDial(reading: model.air) }
-                }
-            }
-            HStack(spacing: 6) {
-                Circle().fill(model.air == nil ? Color.white.opacity(0.4) : Palette.lime).frame(width: 5, height: 5)
-                Text(sourceLabel).font(.caption2).foregroundStyle(.white.opacity(0.7))
-            }
-            Button { model.section = .routes } label: {
-                HStack { Image(systemName: "figure.walk"); Text(model.activeRoute == nil ? "Plan your next walk" : "Return to your walk"); Spacer(); Image(systemName: "arrow.up.right") }
-                    .font(.subheadline.weight(.semibold)).padding(16).foregroundStyle(Palette.deep).background(Palette.lime, in: RoundedRectangle(cornerRadius: 15))
-            }.buttonStyle(PressStyle())
-            if model.busy { ProgressView("Updating…").tint(Palette.lime).foregroundStyle(.white) }
-        }.padding(22).background { Palette.deep.overlay(ContourTexture()).clipShape(RoundedRectangle(cornerRadius: 28)) }
-    }
-    private var airReading: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(model.air?.label ?? (KeyStore.read("openweather").isEmpty ? "Connect air data" : "No reading yet")).font(.title3.weight(.medium)).foregroundStyle(Palette.lime)
-            if let air = model.air {
-                Text(air.pm25, format: .number.precision(.fractionLength(1))).font(.system(.largeTitle, design: .rounded).weight(.medium)).foregroundStyle(.white)
-                Text("µg/m³ · PM2.5").font(.caption).foregroundStyle(.white.opacity(0.75))
-            } else {
-                Text("Your air.\nIn perspective.").font(.system(.title, design: .serif)).foregroundStyle(.white)
-                Button(model.location.hasAuthorization ? "Use my current location" : "Enable location") { model.location.request() }.font(.caption.weight(.semibold)).foregroundStyle(Palette.lime).padding(.vertical, 8)
-            }
-        }.accessibilityElement(children: .contain)
-    }
-    private var sourceLabel: String {
-        guard let air = model.air else { return KeyStore.read("openweather").isEmpty ? "No live reading · add your data connection in You" : "Connection configured · use your location, then refresh" }
-        return air.demo ? "DEMO · illustrative data" : "OpenWeather · \(air.date.formatted(.dateTime.hour().minute())) · \(air.isFresh ? "recent" : "stale")"
-    }
-    private var weekCard: some View {
-        Surface {
-            HStack {
-                SectionHeading(title: "Your week")
-                Button { model.section = .journal } label: { Image(systemName: "arrow.up.right").frame(width: 44, height: 44) }.accessibilityLabel("View walking journal")
-            }
-            HStack(spacing: 14) {
-                stat(value: "\(weekTrips.count)", label: "walks recorded", symbol: "figure.walk")
-                Rectangle().fill(Palette.line).frame(width: 1, height: 38)
-                stat(value: String(format: "%.1f", weekTrips.reduce(0) { $0 + $1.metres }/1000), label: "kilometres", symbol: "point.topleft.down.to.point.bottomright.curvepath")
-            }
-            if weekTrips.contains(where: { $0.dose != nil }) {
-                Chart(weekTrips) { trip in
-                    if let dose = trip.dose { BarMark(x: .value("Day", trip.date, unit: .day), y: .value("Recorded dose µg", dose)).cornerRadius(4).foregroundStyle(Palette.forest.gradient) }
-                }.chartYAxis { AxisMarks(position: .leading) }.frame(height: 115)
-                Text("Recorded exposure only · partial coverage may understate dose").font(.caption2).foregroundStyle(Palette.muted)
-            } else {
-                VStack(spacing: 14) {
-                    HStack(alignment: .bottom, spacing: 9) {
-                        ForEach(0..<7) { index in
-                            VStack(spacing: 9) {
-                                RoundedRectangle(cornerRadius: 3).fill(Palette.forest.opacity(0.06)).frame(height: 30)
-                                    .overlay(alignment: .bottom) { RoundedRectangle(cornerRadius: 3).fill(Palette.forest.opacity(0.17)).frame(height: 3) }
-                                Text(dayLabel(index)).font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.muted)
-                            }
-                        }
-                    }.accessibilityHidden(true)
-                    Text("Your first walk will start the picture.").font(.caption).foregroundStyle(Palette.muted)
-                }.padding(.top, 8)
-            }
+
+    // MARK: Header
+
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            BrandMark()
+            Text("breathe route").font(.system(.headline, design: .rounded).weight(.semibold)).foregroundStyle(Palette.ink)
+            Spacer()
+            Button { model.section = .profile } label: {
+                Text(model.name.first.map { String($0).uppercased() } ?? "You")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.forest)
+                    .frame(width: 44, height: 44)
+                    .background(Palette.surface, in: Circle())
+                    .overlay(Circle().stroke(Palette.line, lineWidth: 1))
+            }.accessibilityLabel("Open profile and settings")
         }
     }
-    private func stat(value: String, label: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) { Text(value).font(.system(.title, design: .rounded).weight(.medium)).monospacedDigit(); Image(systemName: symbol).font(.caption).foregroundStyle(Palette.forest) }
-            Text(label).font(.caption).foregroundStyle(Palette.muted)
-        }.frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(Palette.ink).accessibilityElement(children: .combine)
+
+    private var greeting: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(model.name.isEmpty ? Date().formatted(.dateTime.weekday(.wide).month().day()) : "Hello, \(model.name)")
+                .font(.subheadline).foregroundStyle(Palette.muted)
+            Text("Ready for a walk?")
+                .font(.system(.largeTitle, design: .serif).weight(.medium)).foregroundStyle(Palette.ink)
+        }
     }
-    private func dayLabel(_ offset: Int) -> String {
-        Calendar.current.date(byAdding: .day, value: offset - 6, to: Date())!.formatted(.dateTime.weekday(.abbreviated))
+
+    // MARK: Hero
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Label("Air around you", systemImage: "location.fill")
+                    .font(.footnote.weight(.medium)).foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                Button { Task { await model.refreshAir() } } label: {
+                    Image(systemName: "arrow.clockwise").frame(width: 44, height: 44)
+                }
+                .foregroundStyle(.white.opacity(0.85))
+                .accessibilityLabel("Refresh current air quality")
+                .disabled(model.busy || model.demo)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle().fill(statusColour).frame(width: 10, height: 10)
+                    Text(statusTag).font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
+                }.accessibilityElement(children: .combine)
+                Text(headline).font(.system(.title, design: .serif)).foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.subheadline).foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if model.air == nil, model.activeRoute == nil {
+                Button(model.location.hasAuthorization ? "Use my current location" : "Enable location") { model.location.request() }
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.lime).frame(minHeight: 44)
+            }
+            Button { model.section = .routes } label: {
+                HStack {
+                    Image(systemName: "figure.walk")
+                    Text(model.activeRoute == nil ? "Plan a walk" : "Return to your walk")
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .font(.headline).padding(.horizontal, 18).frame(minHeight: 56)
+                .foregroundStyle(Palette.deep).background(Palette.lime, in: RoundedRectangle(cornerRadius: 16))
+            }.buttonStyle(PressStyle())
+            if model.busy { ProgressView("Updating…").tint(Palette.lime).foregroundStyle(.white) }
+        }
+        .padding(22)
+        .background { Palette.deep.overlay(ContourTexture()).clipShape(RoundedRectangle(cornerRadius: 28)) }
     }
-    private var exploreCard: some View {
-        Button { model.section = .routes } label: {
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Eyebrow(text: "Find your way")
-                    Text("Time, distance.\nAnd a little more.").font(.system(.title3, design: .serif)).foregroundStyle(Palette.ink)
-                    Label("Compare a walk", systemImage: "arrow.up.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.forest)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                RouteArtwork().frame(width: 112, height: 135).clipShape(RoundedRectangle(cornerRadius: 19)).rotationEffect(.degrees(4))
-            }.padding(20).background(Palette.surface, in: RoundedRectangle(cornerRadius: 24)).overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.line, lineWidth: 0.7))
-        }.buttonStyle(PressStyle())
+
+    private var headline: String {
+        if let air = model.air { return "Air is \(air.label.lowercased()) right now" }
+        return KeyStore.read("openweather").isEmpty ? "See the air before you go" : "No reading yet"
     }
-    private var symptomCard: some View {
-        Button { addingSymptom = true } label: {
-            HStack(spacing: 16) {
-                Image(systemName: "heart.text.clipboard").font(.title3).foregroundStyle(Palette.ink).frame(width: 46, height: 46).background(Palette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 15))
-                VStack(alignment: .leading, spacing: 5) { Text("A moment to check in").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text("How are you feeling today?").font(.caption).foregroundStyle(Palette.muted) }
-                Spacer(minLength: 2); Image(systemName: "plus").foregroundStyle(Palette.ink)
-            }.padding(18).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 22))
-        }.buttonStyle(PressStyle())
+    private var detail: String {
+        if let air = model.air {
+            let pm = air.pm25.formatted(.number.precision(.fractionLength(1)))
+            return air.demo ? "Example data · PM2.5 \(pm) µg/m³"
+                : "PM2.5 \(pm) µg/m³ · updated \(air.date.formatted(.dateTime.hour().minute()))"
+        }
+        return KeyStore.read("openweather").isEmpty
+            ? "Add your OpenWeather key in You to see live air quality, or try the example walk in Explore."
+            : "Allow location, then tap refresh."
+    }
+    private var statusTag: String {
+        guard let air = model.air else { return "No live reading" }
+        return air.demo ? "Example" : (air.isFresh ? "Recent reading" : "Reading is out of date")
+    }
+    private var statusColour: Color {
+        guard let air = model.air, air.isFresh || air.demo else { return .white.opacity(0.4) }
+        switch air.aqi { case 1, 2: return Palette.lime; case 3: return Color(hex: 0xE5B84B); default: return Color(hex: 0xE88A82) }
+    }
+
+    // MARK: This week
+
+    private var weekSummary: some View {
+        Button { model.section = .journal } label: {
+            Surface {
+                HStack {
+                    Text("This week").font(.headline).foregroundStyle(Palette.ink)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                }
+                if weekTrips.isEmpty {
+                    Text("Your first walk will start the picture.").font(.subheadline).foregroundStyle(Palette.muted)
+                } else {
+                    HStack(spacing: 16) {
+                        Metric(title: weekTrips.count == 1 ? "walk" : "walks", value: "\(weekTrips.count)")
+                        Metric(title: "kilometres", value: String(format: "%.1f", weekTrips.reduce(0) { $0 + $1.metres } / 1000))
+                    }
+                }
+            }
+        }.buttonStyle(PressStyle()).accessibilityHint("Opens your journal")
+    }
+
+    // MARK: Quiet secondary actions
+
+    private var moreRows: some View {
+        Surface(padding: 4) {
+            row(symbol: "clock.badge.checkmark", title: "When to walk",
+                subtitle: model.activeRoute != nil ? "Available after this walk" : "Compare departure times",
+                disabled: model.activeRoute != nil) { showDepartureForecast = true }
+            Divider().padding(.leading, 62)
+            row(symbol: "heart.text.clipboard", title: "How are you feeling?",
+                subtitle: "Add a private note", disabled: false) { addingSymptom = true }
+        }
+    }
+
+    private func row(symbol: String, title: String, subtitle: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol).font(.title3).foregroundStyle(Palette.forest)
+                    .frame(width: 40, height: 40).background(Palette.forest.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                    Text(subtitle).font(.caption).foregroundStyle(Palette.muted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+            }
+            .padding(12).frame(maxWidth: .infinity, minHeight: 60, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle()).disabled(disabled).accessibilityElement(children: .combine)
     }
 }
