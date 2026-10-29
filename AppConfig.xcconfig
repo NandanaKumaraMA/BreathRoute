@@ -3,3 +3,5 @@ BREATHE_OPENWEATHER_KEY =
 BREATHE_GEOAPIFY_KEY =
 BREATHE_ORS_KEY =
 #include? "Config.local.xcconfig"
+
+#include "GoogleSignIn.xcconfig"

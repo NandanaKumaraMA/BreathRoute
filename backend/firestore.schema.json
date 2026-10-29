@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 2,
+  "enforcement": "firestore.rules; this file documents shapes and is not an importable SQL schema",
+  "scope": "authenticated owner UID; default deny for every other path",
+  "documents": {
+    "users/{uid}": {
+      "required": {
+        "schemaVersion": "integer 1",
+        "displayName": "string <= 200 characters",
+        "walkCount": "integer 0..500",
+        "symptomCount": "integer 0..500",
+        "journalRevision": "UUID matching current snapshot",
+        "updatedAt": "server timestamp"
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/preferences/current": {
+      "required": {
+        "schemaVersion": "integer 1",
+        "walkingPace": "Easy | Brisk | Fast",
+        "extraMinutes": "number 0..120",
+        "journalRevision": "UUID matching current snapshot",
+        "updatedAt": "server timestamp"
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/walks/{uuid}": {
+      "required": {
+        "schemaVersion": "integer 1",
+        "id": "UUID equal to document ID",
+        "date": "Firestore Timestamp",
+        "destination": "nonempty string <= 500 characters",
+        "metres": "number 0..1000000",
+        "seconds": "number 0..1209600",
+        "coverage": "number 0..1",
+        "demo": "boolean",
+        "complete": "boolean",
+        "journalRevision": "UUID matching current snapshot"
+      },
+      "optional": {
+        "dose": "number 0..1000000000",
+        "ventilation": "number 0.001..0.2",
+        "routeSource": "string <= 500 characters",
+        "conflictCopyOf": "UUID"
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/symptoms/{uuid}": {
+      "required": {
+        "schemaVersion": "integer 1",
+        "id": "UUID equal to document ID",
+        "date": "Firestore Timestamp",
+        "kind": "nonempty string <= 80 characters",
+        "severity": "integer 1..5",
+        "notes": "string <= 12000 characters",
+        "journalRevision": "UUID matching current snapshot"
+      },
+      "optional": {
+        "tripID": "UUID",
+        "conflictCopyOf": "UUID"
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/journal/current": {
+      "required": {
+        "schemaVersion": "integer 1 (legacy) or 2",
+        "revision": "UUID, changes on update",
+        "updatedAt": "server timestamp",
+        "payload": "validated JSON string <= 350000 UTF-8 bytes; <=500 entries; optional profile/preferences"
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/demoDatasets/coursework2026": {
+      "required": {
+        "schemaVersion": "integer 1",
+        "label": "Coursework demonstration \u2014 synthetic",
+        "synthetic": true,
+        "walkCount": 30,
+        "symptomCount": 45,
+        "updatedAt": "server timestamp",
+        "profile": {
+          "displayName": "Demo Walker"
+        },
+        "preferences": {
+          "walkingPace": "Easy",
+          "extraMinutes": 10
+        }
+      },
+      "additionalFields": false
+    },
+    "users/{uid}/demoDatasets/coursework2026/{walks|symptoms}/{uuid}": {
+      "shape": "same typed walk/symptom fields",
+      "extraRequired": {
+        "synthetic": true,
+        "datasetID": "coursework2026"
+      },
+      "walkRequirement": "demo == true",
+      "isolation": "not queried as journal data"
+    }
+  },
+  "excluded": [
+    "API keys",
+    "raw GPS paths",
+    "sample coordinates",
+    "Motion metrics",
+    "Health records",
+    "unfinished walks",
+    "notification permissions"
+  ]
+}

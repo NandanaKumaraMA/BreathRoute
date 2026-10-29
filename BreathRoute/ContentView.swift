@@ -30,7 +30,14 @@ struct ContentView: View {
             }
         }
         .id(model.accountScopeKey)
-        .task { model.startAccountObservation() }
+        .task {
+            model.startAccountObservation()
+            #if DEBUG
+            Task { await CloudJournalQA.runIfRequested(model: model) }
+            Task { await LiveJournalQA.runIfRequested(model: model) }
+            Task { await StructuredCloudQA.runIfRequested(model: model) }
+            #endif
+        }
         .tint(Palette.forest)
         .background(Palette.canvas)
         .onChange(of: phase) { _, next in

@@ -17,6 +17,7 @@ struct ProfileView: View {
             PageHeader(title: "Your space.", subtitle: "Preferences & privacy", symbol: "slider.horizontal.3")
             profileAndPreferencesCard
             AccountCard(model: model) { showAccount = true }
+            if model.account.identity != nil { CloudJournalCard(model: model) }
             remindersAndPrivacyCard
             healthAndMotionDisclosure
             methodologyCard

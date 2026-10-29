@@ -65,6 +65,23 @@ final class LocalStore {
             try context.save()
         } catch { context.rollback(); throw error }
     }
+    /// Save the merged journal and its acknowledged cloud baseline together. A failure
+    /// must leave both the old journal and the old baseline available for a safe retry.
+    func replaceJournal(trips: [(UUID, Data)], notes: [(UUID, Data)], state: (UUID, Data)) throws {
+        let context = container.viewContext
+        do {
+            let request = NSFetchRequest<NSManagedObject>(entityName: "Record")
+            request.predicate = NSPredicate(format: "kind IN %@", ["trip", "symptom", "cloud-state"])
+            try context.fetch(request).forEach(context.delete)
+            for (kind, values) in [("trip", trips), ("symptom", notes), ("cloud-state", [state])] {
+                for (id, payload) in values {
+                    let record = NSEntityDescription.insertNewObject(forEntityName: "Record", into: context)
+                    record.setValue(id, forKey: "id"); record.setValue(kind, forKey: "kind"); record.setValue(payload, forKey: "payload")
+                }
+            }
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
     /// One durable transaction prevents a saved trip and an unfinished draft from both surviving finish.
     func finish<T: Encodable>(_ trip: T, tripID: UUID, draftID: UUID) throws {
         guard tripID != draftID else { throw CocoaError(.coderInvalidValue) }

@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function uuid(value) { return value is string && value.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'); }
+    function revision(uid, value) { return uuid(value) && value == getAfter(/databases/$(database)/documents/users/$(uid)/journal/current).data.revision; }
+    function optionalNumber(d, key, maximum) { return !(key in d) || (d[key] is number && d[key] >= 0 && d[key] <= maximum); }
+    function optionalUUID(d, key) { return !(key in d) || uuid(d[key]); }
+    function validDate(value) { return value is timestamp && value >= timestamp.date(1970, 1, 1) && value <= timestamp.date(2100, 1, 1); }
+    function validWalk(d, id) {
+      return d.keys().hasAll(['schemaVersion','id','date','destination','metres','seconds','coverage','demo','complete','journalRevision'])
+        && d.keys().hasOnly(['schemaVersion','id','date','destination','metres','seconds','dose','coverage','demo','complete','ventilation','routeSource','conflictCopyOf','journalRevision','synthetic','datasetID'])
+        && d.schemaVersion == 1 && d.id == id && uuid(id) && validDate(d.date)
+        && d.destination is string && d.destination.size() > 0 && d.destination.size() <= 2000
+        && d.metres is number && d.metres >= 0 && d.metres <= 1000000
+        && d.seconds is number && d.seconds >= 0 && d.seconds <= 1209600
+        && d.coverage is number && d.coverage >= 0 && d.coverage <= 1
+        && d.demo is bool && d.complete is bool && uuid(d.journalRevision)
+        && optionalNumber(d, 'dose', 1000000000)
+        && (!('ventilation' in d) || (d.ventilation is number && d.ventilation >= 0.001 && d.ventilation <= 0.2))
+        && (!('routeSource' in d) || (d.routeSource is string && d.routeSource.size() <= 2000))
+        && optionalUUID(d, 'conflictCopyOf');
+    }
+    function validSymptom(d, id) {
+      return d.keys().hasAll(['schemaVersion','id','date','kind','severity','notes','journalRevision'])
+        && d.keys().hasOnly(['schemaVersion','id','date','kind','severity','notes','tripID','conflictCopyOf','journalRevision','synthetic','datasetID'])
+        && d.schemaVersion == 1 && d.id == id && uuid(id) && validDate(d.date)
+        && d.kind is string && d.kind.size() > 0 && d.kind.size() <= 320
+        && d.severity is int && d.severity >= 1 && d.severity <= 5
+        && d.notes is string && d.notes.size() <= 48000 && uuid(d.journalRevision)
+        && optionalUUID(d, 'tripID') && optionalUUID(d, 'conflictCopyOf');
+    }
+    match /users/{uid} {
+      allow get: if owner(uid);
+      allow create, update: if owner(uid)
+        && request.resource.data.keys().hasAll(['schemaVersion','displayName','walkCount','symptomCount','journalRevision','updatedAt'])
+        && request.resource.data.keys().hasOnly(['schemaVersion','displayName','walkCount','symptomCount','journalRevision','updatedAt'])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.displayName is string && request.resource.data.displayName.size() <= 800
+        && request.resource.data.walkCount is int && request.resource.data.walkCount >= 0 && request.resource.data.walkCount <= 500
+        && request.resource.data.symptomCount is int && request.resource.data.symptomCount >= 0 && request.resource.data.symptomCount <= 500
+        && request.resource.data.walkCount + request.resource.data.symptomCount <= 500
+        && request.resource.data.updatedAt == request.time && revision(uid, request.resource.data.journalRevision);
+      match /journal/current {
+        function validSnapshot() {
+          let d = request.resource.data;
+          return d.keys().hasAll(['schemaVersion','revision','updatedAt','payload'])
+            && d.keys().hasOnly(['schemaVersion','revision','updatedAt','payload'])
+            && d.schemaVersion is int && d.schemaVersion in [1, 2] && uuid(d.revision)
+            && d.updatedAt == request.time && d.payload is string && d.payload.size() > 0 && d.payload.size() <= 350000;
+        }
+        allow get: if owner(uid);
+        allow create: if owner(uid) && validSnapshot();
+        allow update: if owner(uid) && validSnapshot() && request.resource.data.revision != resource.data.revision;
+      }
+      match /preferences/current {
+        allow get: if owner(uid);
+        allow create, update: if owner(uid)
+          && request.resource.data.keys().hasAll(['schemaVersion','walkingPace','extraMinutes','journalRevision','updatedAt'])
+          && request.resource.data.keys().hasOnly(['schemaVersion','walkingPace','extraMinutes','journalRevision','updatedAt'])
+          && request.resource.data.schemaVersion == 1 && request.resource.data.walkingPace in ['Easy','Brisk','Fast']
+          && request.resource.data.extraMinutes is number && request.resource.data.extraMinutes >= 0 && request.resource.data.extraMinutes <= 120
+          && request.resource.data.updatedAt == request.time && revision(uid, request.resource.data.journalRevision);
+      }
+      match /walks/{id} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && validWalk(request.resource.data, id)
+          && !request.resource.data.keys().hasAny(['synthetic','datasetID']) && revision(uid, request.resource.data.journalRevision);
+      }
+      match /symptoms/{id} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && validSymptom(request.resource.data, id)
+          && !request.resource.data.keys().hasAny(['synthetic','datasetID']) && revision(uid, request.resource.data.journalRevision);
+      }
+      match /demoDatasets/coursework2026 {
+        allow get: if owner(uid);
+        allow create, update: if owner(uid)
+          && request.resource.data.keys().hasAll(['schemaVersion','label','synthetic','walkCount','symptomCount','updatedAt','profile','preferences'])
+          && request.resource.data.keys().hasOnly(['schemaVersion','label','synthetic','walkCount','symptomCount','updatedAt','profile','preferences'])
+          && request.resource.data.schemaVersion == 1 && request.resource.data.synthetic == true
+          && request.resource.data.label == 'Coursework demonstration — synthetic'
+          && request.resource.data.walkCount == 30 && request.resource.data.symptomCount == 45
+          && request.resource.data.profile == {'displayName': 'Demo Walker'}
+          && request.resource.data.preferences == {'walkingPace': 'Easy', 'extraMinutes': 10}
+          && request.resource.data.updatedAt == request.time;
+        match /walks/{id} {
+          allow read: if owner(uid);
+          allow create, update: if owner(uid) && validWalk(request.resource.data, id)
+            && request.resource.data.synthetic == true && request.resource.data.datasetID == 'coursework2026' && request.resource.data.demo == true;
+        }
+        match /symptoms/{id} {
+          allow read: if owner(uid);
+          allow create, update: if owner(uid) && validSymptom(request.resource.data, id)
+            && request.resource.data.synthetic == true && request.resource.data.datasetID == 'coursework2026';
+        }
+      }
+    }
+  }
+}

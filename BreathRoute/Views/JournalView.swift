@@ -9,6 +9,7 @@ private enum JournalItem: Identifiable {
 struct JournalView: View {
     @Bindable var model: AppModel
     @State private var editing: SymptomEntry?
+    @State private var showDemoJournal = false
     @State private var filter = "All"
     @State private var periodDays = 0
     @State private var deletingSymptom: SymptomEntry?
@@ -56,8 +57,11 @@ struct JournalView: View {
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                     .padding(18).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 18))
             }.buttonStyle(PressStyle())
+            Button("Explore a demo journal", systemImage: "sparkles") { showDemoJournal = true }
+                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }
         .adaptiveNavigationBar()
+        .sheet(isPresented: $showDemoJournal) { DemoJournalView(model: model) }
         .sheet(item: $editing) { SymptomEditor(model: model, entry: $0) }
         .confirmationDialog("Delete this symptom?", isPresented: Binding(get: { deletingSymptom != nil }, set: { if !$0 { deletingSymptom = nil } }), titleVisibility: .visible) {
             Button("Delete symptom", role: .destructive) { if let entry = deletingSymptom { model.deleteSymptom(entry) }; deletingSymptom = nil }
@@ -136,6 +140,7 @@ struct JournalView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(symptom.kind) · \(symptom.severity)/5").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                     Text(symptom.date.formatted(.dateTime.hour().minute())).font(.caption).foregroundStyle(Palette.muted)
+                    if symptom.conflictCopyOf != nil { StatusPill(title: "Conflict copy", symbol: "doc.on.doc") }
                     if !symptom.notes.isEmpty { Text(symptom.notes).font(.caption).foregroundStyle(Palette.muted) }
                     if let id = symptom.tripID {
                         Label(model.trips.first(where: { $0.id == id })?.destination ?? "Linked walk", systemImage: "link").font(.caption2).foregroundStyle(Palette.muted)
@@ -176,6 +181,8 @@ struct TripDetailView: View {
                     Text("Assumed breathing rate: \(Int(ventilation * 1000)) L/min. Unobserved gaps are excluded.").font(.caption).foregroundStyle(Palette.muted)
                 }
             }
+            if trip.cloudSummary == true { InfoNote(symbol: "icloud.and.arrow.down", text: "Restored summary. GPS paths and activity remain on the original device.") }
+            if trip.conflictCopyOf != nil { InfoNote(symbol: "doc.on.doc", text: "Conflict copy. Both versions were kept after competing edits.") }
             if !(trip.recordedPath?.isEmpty ?? true) || !(trip.plannedPath?.isEmpty ?? true) {
                 RecordedPathView(points: trip.recordedPath ?? [], planned: trip.plannedPath ?? [], demo: trip.demo)
             }

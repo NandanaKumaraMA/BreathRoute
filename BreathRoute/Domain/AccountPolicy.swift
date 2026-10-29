@@ -8,7 +8,25 @@ struct AccountIdentity: Equatable, Sendable {
     let email: String?
     let emailVerified: Bool
     let environment: AccountEnvironment
+    var providerIDs: [String] = []
+    var displayName: String? = nil
+    var usesGoogle: Bool { providerIDs.contains("google.com") }
+    var canVerifyEmail: Bool { providerIDs.contains("password") && email != nil && !emailVerified }
+    var displayLabel: String { email ?? displayName ?? "Signed in" }
     var journalNamespace: String { "\(environment.rawValue)|\(projectID.utf8.count):\(projectID)\(userID)" }
+}
+
+enum GoogleAccountConfiguration {
+    // Validate both the downloaded client and the built callback before invoking the SDK.
+    static func callbackScheme(clientID: String?) -> String? {
+        guard let clientID,
+              clientID.range(of: #"\A[A-Za-z0-9-]+\.apps\.googleusercontent\.com\z"#, options: .regularExpression) != nil else { return nil }
+        return clientID.split(separator: ".").reversed().joined(separator: ".")
+    }
+    static func isReady(clientID: String?, registeredSchemes: [String]) -> Bool {
+        guard let expected = callbackScheme(clientID: clientID) else { return false }
+        return registeredSchemes.contains(expected)
+    }
 }
 
 enum AccountInputError: String, LocalizedError {

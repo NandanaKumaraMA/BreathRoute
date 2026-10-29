@@ -9,15 +9,6 @@ enum WalkingIntensity: String, Codable, CaseIterable, Identifiable {
     var ventilation: Double { switch self { case .easy: 0.015; case .brisk: 0.025; case .fast: 0.035 } }
 }
 
-struct SymptomEntry: Identifiable, Codable {
-    var id = UUID()
-    var date = Date()
-    var kind = "Cough"
-    var severity = 1
-    var notes = ""
-    var tripID: UUID?
-}
-
 struct RouteStep: Identifiable, Sendable {
     let id = UUID()
     let instructions: String

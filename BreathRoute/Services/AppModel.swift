@@ -22,7 +22,13 @@ final class AppModel {
     var name: String { didSet { UserDefaults.standard.set(name, forKey: profileKey("displayName")) } }
     var intensity: WalkingIntensity { didSet { UserDefaults.standard.set(intensity.rawValue, forKey: profileKey("intensity")) } }
     let account = AccountService()
-    var canChangeAccount: Bool { activeRoute == nil && pendingRecovery == nil && !unreadableRecovery && !busy && !remainingBusy && !account.working && !health.isReadingActivity && !health.isReadingVitals }
+    let cloud = CloudJournalService()
+    private(set) var syncInFlight = false
+    private(set) var cloudState = JournalCloudState()
+    private(set) var journalReadableForSync = false
+    var canSyncJournal: Bool { account.identity != nil && journalReadableForSync && canChangeAccount }
+    var cloudHasLocalChanges: Bool { (try? cloudSnapshot()) != cloudState.base }
+    var canChangeAccount: Bool { activeRoute == nil && pendingRecovery == nil && !unreadableRecovery && !busy && !remainingBusy && !account.working && !syncInFlight && !cloud.working && !health.isReadingActivity && !health.isReadingVitals }
     let location = LocationService()
     let voice = VoiceService()
     let health = HealthService()
@@ -34,7 +40,7 @@ final class AppModel {
     var remainingBusy = false
     var remainingNotice: String?
     var routeNotice: String?
-    var extraMinutes = 10.0
+    var extraMinutes = 10.0 { didSet { UserDefaults.standard.set(extraMinutes, forKey: profileKey("extraMinutes")) } }
     private var remainingTask: Task<Void, Never>?
     private var plannedStart: CLLocationCoordinate2D?
     private var plannedDestination: MKMapItem?
@@ -126,6 +132,7 @@ final class AppModel {
     init() {
         name = UserDefaults.standard.string(forKey: "displayName") ?? ""
         intensity = WalkingIntensity(rawValue: UserDefaults.standard.string(forKey: "intensity") ?? "") ?? .easy
+        extraMinutes = UserDefaults.standard.object(forKey: "extraMinutes") as? Double ?? 10
         motionTrackingEnabled = UserDefaults.standard.bool(forKey: "motionTrackingEnabled")
         openJournal(accountNamespace: nil)
         location.onUpdate = { [weak self] location in
@@ -148,20 +155,29 @@ final class AppModel {
         routes = []; selectedRoute = nil; demo = false; air = nil; airNotice = nil; plannedStart = nil; plannedDestination = nil
         routeNotice = nil; remainingNotice = nil; remainingBusy = false; refreshing = false
         symptoms = []; trips = []; pendingRecovery = nil; unreadableRecovery = false; repository = nil
-        accountScopeKey = next; health.resetForAccountChange(); forecasts.clearForAccountChange()
+        accountScopeKey = next; health.resetForAccountChange(); forecasts.clearForAccountChange(); cloud.resetForAccountChange()
         name = UserDefaults.standard.string(forKey: profileKey("displayName")) ?? ""
         intensity = WalkingIntensity(rawValue: UserDefaults.standard.string(forKey: profileKey("intensity")) ?? "") ?? .easy
+        extraMinutes = UserDefaults.standard.object(forKey: profileKey("extraMinutes")) as? Double ?? 10
         openJournal(accountNamespace: identity?.journalNamespace); section = .profile
         if interrupted { error = "The account session changed. The unfinished walk remains saved in its original journal. Sign back into that account to recover it." }
     }
     private func openJournal(accountNamespace: String?) {
+        journalReadableForSync = false; cloudState = JournalCloudState()
         do { repository = try LocalStore(accountNamespace: accountNamespace) }
         catch { self.error = "This journal could not be opened. Existing data has not been reset."; return }
         guard let repository else { return }
+        var readable = true
         do { symptoms = try repository.read("symptom", as: SymptomEntry.self).sorted { $0.date > $1.date } }
-        catch { self.error = "Symptom records could not be read. They have not been reset." }
+        catch { readable = false; self.error = "Symptom records could not be read. They have not been reset." }
         do { trips = try repository.read("trip", as: TripEntry.self).sorted { $0.date > $1.date } }
-        catch { self.error = "Walk records could not be read. They have not been reset." }
+        catch { readable = false; self.error = "Walk records could not be read. They have not been reset." }
+        do {
+            let states = try repository.read("cloud-state", as: JournalCloudState.self)
+            guard states.count <= 1 else { throw JournalSyncError.invalid }
+            if let state = states.first { _ = try state.base.encoded(); cloudState = state }
+        } catch { readable = false; cloud.message = "Cloud state could not be read. Sync is disabled to protect existing records." }
+        journalReadableForSync = readable
         do {
             let drafts = try repository.read("active-walk", as: ActiveWalkCheckpoint.self)
             if let draft = drafts.first {
@@ -171,6 +187,7 @@ final class AppModel {
         } catch { unreadableRecovery = true; checkpointMessage = "An unfinished walk could not be read. It remains stored; discard it explicitly before starting another walk." }
     }
     func save(_ entry: SymptomEntry) -> Bool {
+        guard !syncInFlight && !cloud.working else { error = "Wait for cloud sync to finish before editing the journal."; return false }
         guard let repository else { error = "Local storage is unavailable. Your note has not been saved."; return false }
         do {
             try repository.save(entry, id: entry.id, kind: "symptom")
@@ -178,14 +195,65 @@ final class AppModel {
         } catch { self.error = "Could not save the symptom: \(error.localizedDescription)"; return false }
     }
     func deleteSymptom(_ entry: SymptomEntry) {
+        guard !syncInFlight && !cloud.working else { error = "Wait for cloud sync to finish before editing the journal."; return }
         guard let repository else { error = "Local storage is unavailable. The note has not been deleted."; return }
         do { try repository.delete(id: entry.id); symptoms.removeAll { $0.id == entry.id } }
         catch { self.error = error.localizedDescription }
     }
     func deleteTrip(_ entry: TripEntry) {
+        guard !syncInFlight && !cloud.working else { error = "Wait for cloud sync to finish before editing the journal."; return }
+        // Linked notes are preserved; the UI treats a deleted trip as unavailable.
         guard let repository else { error = "Local storage is unavailable. The walk has not been deleted."; return }
         do { try repository.delete(id: entry.id); trips.removeAll { $0.id == entry.id } }
         catch { self.error = error.localizedDescription }
+    }
+    private func cloudSnapshot() throws -> JournalCloudSnapshot {
+        try JournalCloudSnapshot(trips: trips.map(CloudTripSummary.init), notes: symptoms,
+                                 profile: CloudUserProfile(displayName: name),
+                                 preferences: CloudPreferences(walkingPace: intensity.rawValue, extraMinutes: extraMinutes)).validated()
+    }
+    func setCloudSyncEnabled(_ enabled: Bool) {
+        guard canSyncJournal, let repository else { return }
+        var next = cloudState; next.enabled = enabled
+        if enabled { next.consentVersion = 2 }
+        do {
+            try repository.save(next, id: JournalCloudState.storageID, kind: "cloud-state")
+            cloudState = next
+            cloud.message = enabled ? "Cloud sync enabled. Use Sync now to upload or restore your journal." : "Cloud sync paused. Existing cloud records have not been deleted."
+        } catch { cloud.message = "The sync preference could not be saved. Its previous setting is unchanged." }
+    }
+    func syncJournal() async {
+        guard canSyncJournal, cloudState.enabled, cloudState.consentVersion == 2, let repository, let identity = account.identity else { return }
+        let scope = accountScopeKey
+        syncInFlight = true
+        defer { syncInFlight = false }
+        do {
+            let local = try cloudSnapshot()
+            let result = try await cloud.synchronize(local: local, base: cloudState.base, identity: identity)
+            guard accountScopeKey == scope else { return }
+            let existing = Dictionary(uniqueKeysWithValues: trips.map { ($0.id, $0) })
+            let mergedTrips = result.snapshot.trips.map { $0.restored(preserving: existing[$0.id]) }
+            var next = cloudState; next.base = result.snapshot; next.revision = result.revision; next.lastSyncedAt = Date()
+            let encoder = JSONEncoder()
+            let tripWrites = try mergedTrips.map { ($0.id, try encoder.encode($0)) }
+            let noteWrites = try result.snapshot.notes.map { ($0.id, try encoder.encode($0)) }
+            try repository.replaceJournal(trips: tripWrites, notes: noteWrites,
+                                          state: (JournalCloudState.storageID, try encoder.encode(next)))
+            trips = mergedTrips.sorted { $0.date > $1.date }
+            symptoms = result.snapshot.notes.sorted { $0.date > $1.date }; cloudState = next
+            // Keep edits made while the request was running as unsynced local changes.
+            if name == local.profile?.displayName, let profile = result.snapshot.profile { name = profile.displayName }
+            if intensity.rawValue == local.preferences?.walkingPace, let pace = result.snapshot.preferences?.walkingPace,
+               let restored = WalkingIntensity(rawValue: pace) { intensity = restored }
+            if extraMinutes == local.preferences?.extraMinutes, let minutes = result.snapshot.preferences?.extraMinutes { extraMinutes = minutes }
+            let count = trips.count + symptoms.count
+            cloud.message = result.conflictCount == 0 ? "Sync complete. \(count) journal \(count == 1 ? "entry" : "entries") checked." :
+                "Sync complete. Both versions were kept for \(result.conflictCount) conflicting changes; copies are labelled in your journal."
+            if result.settingsConflictCount > 0 { cloud.message = (cloud.message ?? "") + " Existing cloud profile/preferences were kept after competing edits. Review them in You before changing and syncing again." }
+        } catch {
+            guard accountScopeKey == scope else { return }
+            cloud.message = CloudJournalService.explain(error)
+        }
     }
     func loadDemo() {
         guard activeRoute == nil else { return }
@@ -233,6 +301,7 @@ final class AppModel {
     }
     func cancelPlanning() { planGeneration += 1; busy = false }
     func start(_ route: WalkRoute) {
+        guard !syncInFlight && !cloud.working else { error = "Wait for cloud sync to finish before starting a walk."; return }
         guard activeRoute == nil, pendingRecovery == nil, !unreadableRecovery, let repository else {
             error = "Resolve the unfinished walk first, or check that local storage is available."; return
         }
@@ -321,6 +390,7 @@ final class AppModel {
         } catch { self.error = "Walk remains open because saving failed: \(error.localizedDescription)" }
     }
     func resumeRecovery() {
+        guard !syncInFlight && !cloud.working else { error = "Wait for cloud sync to finish before resuming a walk."; return }
         guard let draft = pendingRecovery, draft.isValid, activeRoute == nil, Date() >= draft.savedAt else {
             error = "This recovery record is invalid or the device clock is earlier than its last save. It has not been discarded."; return
         }

@@ -1,0 +1,4 @@
+// Run python3 scripts/configure-google-signin.py after replacing the Firebase plist.
+// A missing local configuration keeps the app usable without Google sign-in.
+GOOGLE_REVERSED_CLIENT_ID = breatheroute-unconfigured
+#include? "GoogleSignIn.local.xcconfig"

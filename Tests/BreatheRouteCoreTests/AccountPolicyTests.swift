@@ -20,3 +20,27 @@ import Testing
     #expect(identity("alice", "project") != identity("alice", "project", .emulator))
     #expect(identity("b|c", "a") != identity("c", "a|b"))
 }
+
+@Test func googleConfigurationRequiresTheMatchingRegisteredCallback() {
+    let client = "1234567890-test-client.apps.googleusercontent.com"
+    let scheme = "com.googleusercontent.apps.1234567890-test-client"
+    #expect(GoogleAccountConfiguration.isReady(clientID: client, registeredSchemes: [scheme]))
+    #expect(!GoogleAccountConfiguration.isReady(clientID: client, registeredSchemes: ["breatheroute-unconfigured"]))
+    #expect(!GoogleAccountConfiguration.isReady(clientID: client, registeredSchemes: [scheme + ".other-project"]))
+    #expect(!GoogleAccountConfiguration.isReady(clientID: nil, registeredSchemes: [scheme]))
+    for invalid in ["", "https://example.com", "other.apps.googleusercontent.com\n", "client apps.googleusercontent.com", "client.apps.googleusercontent.com/redirect"] {
+        #expect(GoogleAccountConfiguration.callbackScheme(clientID: invalid) == nil)
+    }
+}
+
+@Test func googleProviderRefreshKeepsTheSameJournalAndAvoidsPasswordOnlyActions() {
+    let original = AccountIdentity(userID: "alice", projectID: "project", email: "alice@example.test", emailVerified: false, environment: .firebase, providerIDs: ["password"])
+    let google = AccountIdentity(userID: "alice", projectID: "project", email: "alice@example.test", emailVerified: true, environment: .firebase, providerIDs: ["google.com"], displayName: "Alice")
+    #expect(original.canVerifyEmail)
+    #expect(!google.canVerifyEmail)
+    #expect(google.usesGoogle)
+    #expect(google.displayLabel == "alice@example.test")
+    #expect(original.journalNamespace == google.journalNamespace)
+    let other = AccountIdentity(userID: "bob", projectID: "project", email: "alice@example.test", emailVerified: true, environment: .firebase, providerIDs: ["google.com"])
+    #expect(other.journalNamespace != google.journalNamespace)
+}

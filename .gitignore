@@ -8,3 +8,8 @@ GoogleService-Info.plist
 firebase-debug.log
 firebase-debug.*.log
 .firebase/
+
+GoogleSignIn.local.xcconfig
+backend/node_modules/
+backend/ui-debug.log
+firestore-debug.log

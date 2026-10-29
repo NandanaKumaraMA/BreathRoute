@@ -1,4 +1,6 @@
 import SwiftUI
+import GoogleSignInSwift
+import UIKit
 
 struct AccountCard: View {
     @Bindable var model: AppModel
@@ -8,11 +10,12 @@ struct AccountCard: View {
         Surface {
             SectionHeading(title: "Your account", detail: model.account.isEmulator ? "Local emulator" : "Firebase Authentication")
             if let identity = model.account.identity {
-                Label(identity.email ?? "Signed in", systemImage: "person.crop.circle.badge.checkmark")
+                Label(identity.displayLabel, systemImage: "person.crop.circle.badge.checkmark")
                     .font(.headline).foregroundStyle(Palette.ink).textSelection(.enabled)
-                StatusPill(title: identity.emailVerified ? "Email verified" : "Email not verified", symbol: identity.emailVerified ? "checkmark.seal" : "envelope")
-                Text("This account has its own journal on this device. Cloud backup and sync are the next implementation step.").font(.caption).foregroundStyle(Palette.muted)
-                if !identity.emailVerified {
+                if identity.usesGoogle { StatusPill(title: "Signed in with Google", symbol: "checkmark.seal") }
+                else if identity.email != nil { StatusPill(title: identity.emailVerified ? "Email verified" : "Email not verified", symbol: identity.emailVerified ? "checkmark.seal" : "envelope") }
+                Text("This account has its own journal on this device. Cloud sync is optional; manage it in Cloud journal below.").font(.caption).foregroundStyle(Palette.muted)
+                if identity.canVerifyEmail {
                     Button("Send verification email") { Task { await model.account.verifyEmail() } }.frame(minHeight: 44)
                     Button("Refresh verification status") { Task { await model.account.refreshIdentity() } }.font(.caption).frame(minHeight: 44)
                 }
@@ -20,12 +23,12 @@ struct AccountCard: View {
                     .disabled(!model.canChangeAccount)
             } else {
                 Label("Using a local journal", systemImage: "iphone").font(.headline).foregroundStyle(Palette.ink)
-                Text("Sign in or create an account. Your existing guest journal stays separate and is available again when you sign out.").font(.subheadline).foregroundStyle(Palette.muted)
+                Text("Continue with Google to open your account's journal. Your guest journal stays separate and is available again when you sign out.").font(.subheadline).foregroundStyle(Palette.muted)
                 if !model.account.available { InfoNote(text: model.account.setupMessage) }
-                Button(model.account.available ? "Sign in or create account" : "View account options", systemImage: "person.badge.key") { model.account.clearMessage(); open() }
+                Button("Open account options", systemImage: "person.badge.key") { model.account.clearMessage(); open() }
                     .font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(!model.canChangeAccount)
             }
-            if model.account.isEmulator { InfoNote(symbol: "hammer", text: "Local authentication emulator. Test accounts are not cloud accounts and no cloud journal is connected.") }
+            if model.account.isEmulator { InfoNote(symbol: "hammer", text: "Local emulator test account. Optional journal sync connects only to the local Firestore emulator; these are not cloud records.") }
             if !model.canChangeAccount && !model.account.working { InfoNote(text: "Finish or resolve your unfinished walk and wait for ongoing requests before changing accounts.") }
             if model.account.working { ProgressView("Contacting account service…") }
             if let message = model.account.message { InfoNote(text: message) }
@@ -35,6 +38,73 @@ struct AccountCard: View {
     }
 }
 
+struct AccountAccessView: View {
+    @Bindable var model: AppModel
+    @State private var presentingController: UIViewController?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    private var canStart: Bool { model.account.googleAvailable && model.canChangeAccount && presentingController != nil }
+    var body: some View {
+        NavigationStack {
+            Page {
+                HStack(spacing: 10) { BrandMark(); Text("breathe route").font(.headline).foregroundStyle(Palette.ink) }
+                PageHeader(title: "A space for\nyour next step.", subtitle: "Your personal account", symbol: "person.crop.circle")
+                Surface {
+                    Label("Your journal, your account", systemImage: "book.closed")
+                        .font(.title3.weight(.semibold)).foregroundStyle(Palette.ink)
+                    Text("Use your Google account to sign in or get started. Your walks and check-ins stay in a separate journal on this device.")
+                        .font(.subheadline).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                    GoogleSignInButton(scheme: colorScheme == .dark ? .dark : .light, style: .wide,
+                                       state: canStart ? .normal : .disabled) {
+                        guard canStart, let presentingController else { return }
+                        Task { @MainActor in
+                            if await model.account.signInWithGoogle(presenting: presentingController) { dismiss() }
+                        }
+                    }.frame(minHeight: 48).accessibilityLabel("Continue with Google")
+                    if model.account.working { ProgressView("Completing sign-in…") }
+                    if !model.account.googleAvailable { InfoNote(symbol: "person.badge.key", text: model.account.googleSetupMessage) }
+                    if let message = model.account.message { InfoNote(text: message).accessibilityIdentifier("account-result-message") }
+                    if !model.canChangeAccount && !model.account.working {
+                        InfoNote(text: "Finish or resolve your unfinished walk and wait for ongoing requests before signing in.")
+                    }
+                }
+                Surface {
+                    Label("Keep your own pace", systemImage: "leaf").font(.headline).foregroundStyle(Palette.ink)
+                    Text("You can keep using BreatheRoute without an account. Your guest journal stays available when you sign out.")
+                        .font(.subheadline).foregroundStyle(Palette.muted)
+                    InfoNote(symbol: "iphone", text: "Signing in does not upload your journal. You can choose optional cloud sync afterwards in Cloud journal.")
+                }
+                Button("Continue with local journal") { dismiss() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    .disabled(model.account.working)
+                Text("Google shares your basic profile and email with BreatheRoute when you sign in.")
+                    .font(.caption).foregroundStyle(Palette.muted)
+                #if DEBUG
+                if model.account.isEmulator {
+                    NavigationLink("Local emulator account tests") { EmailAccountAccessView(model: model) }
+                        .font(.caption).frame(minHeight: 44).disabled(model.account.working)
+                }
+                #endif
+            }
+            .background(SignInPresentationAnchor(controller: $presentingController).frame(width: 0, height: 0))
+            .navigationTitle("Account").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(model.account.working) } }
+            .interactiveDismissDisabled(model.account.working)
+        }
+    }
+}
+
+/// Bind the OAuth presenter to this sheet's window, including when more than one iPad scene exists.
+private struct SignInPresentationAnchor: UIViewControllerRepresentable {
+    @Binding var controller: UIViewController?
+    func makeUIViewController(context: Context) -> UIViewController {
+        let controller = UIViewController()
+        controller.view.backgroundColor = .clear
+        DispatchQueue.main.async { self.controller = controller }
+        return controller
+    }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
 private enum AccountFormMode: String, CaseIterable, Identifiable {
     case signIn = "Sign in", register = "Register", reset = "Reset"
     var id: String { rawValue }
@@ -42,7 +112,7 @@ private enum AccountFormMode: String, CaseIterable, Identifiable {
     var action: String { switch self { case .signIn: "Sign in"; case .register: "Create account"; case .reset: "Send reset instructions" } }
 }
 
-struct AccountAccessView: View {
+private struct EmailAccountAccessView: View {
     @Bindable var model: AppModel
     @State private var mode = AccountFormMode.signIn
     @State private var email = ""

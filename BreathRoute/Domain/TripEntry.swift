@@ -18,4 +18,6 @@ struct TripEntry: Identifiable, Codable {
     var ventilation: Double? = nil
     var recovered: Bool? = nil
     var lastRecordedAt: Date? = nil
+    var cloudSummary: Bool? = nil
+    var conflictCopyOf: UUID? = nil
 }
