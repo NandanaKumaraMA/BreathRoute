@@ -12,124 +12,187 @@ struct ProfileView: View {
     @State private var status: String?
     @State private var working = false
     @State private var showAccount = false
+    @State private var showHealthSection = false
+
     var body: some View {
         Page {
             PageHeader(title: "Your space.", subtitle: "Preferences & privacy", symbol: "slider.horizontal.3")
-            profileCard
+            profileAndPreferencesCard
             AccountCard(model: model) { showAccount = true }
-            SectionHeading(title: "Your preferences")
-            Surface {
-                VStack(alignment: .leading, spacing: 8) { Text("Display name").font(.caption).foregroundStyle(Palette.muted); TextField("What should we call you?", text: $model.name).font(.headline).textContentType(.givenName) }
-                Divider()
-                HStack { settingsIcon("figure.walk", tint: Palette.forest); Picker("Usual walking pace", selection: $model.intensity) { ForEach(WalkingIntensity.allCases) { Text($0.rawValue).tag($0) } }.font(.subheadline) }.disabled(model.activeRoute != nil || !model.routes.isEmpty)
-            }
-            SectionHeading(title: "Connected to you")
-            MotionSettingsCard(model: model)
-            HealthActivityCard(health: model.health)
-            Surface {
-                HStack(alignment: .top, spacing: 14) {
-                    settingsIcon("heart.fill", tint: Color(hex: 0xB95763))
-                    VStack(alignment: .leading, spacing: 6) { Text("Optional health records").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text("Apple Health · stored records, not live monitoring").font(.caption).foregroundStyle(Palette.muted) }
-                    Spacer()
-                    if model.health.isReadingVitals { ProgressView() } else { Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(Palette.muted) }
-                }
-                Text(model.health.summary).font(.caption).foregroundStyle(Palette.muted)
-                if let checked = model.health.vitalsCheckedAt { Text("Last checked \(checked.formatted(date: .abbreviated, time: .shortened)).").font(.caption2).foregroundStyle(Palette.muted) }
-                if let record = model.health.heartRecord { vitalRecord("Recorded heart rate", unit: "bpm", record: record) }
-                if let record = model.health.respiratoryRecord { vitalRecord("Recorded respiratory rate", unit: "breaths/min", record: record) }
-                Button("Read recent health records") { Task { await model.health.readRecentVitals() } }
-                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.health.isReadingVitals || model.health.isReadingActivity)
-                DisclosureGroup("How health data is used") { Text("Samples stay on this device. Heart rate and respiratory rate alone do not measure inhaled air volume. Exposure uses your labelled walking-intensity assumption.").font(.caption).foregroundStyle(Palette.muted).padding(.top, 8) }.font(.caption)
-            }
-            Surface {
-                HStack(spacing: 14) { settingsIcon("bell.badge", tint: Palette.forest); Toggle(isOn: $reminderDraft) { VStack(alignment: .leading, spacing: 5) { Text("A daily check-in").font(.subheadline.weight(.semibold)); Text("A quiet reminder to reflect on your day").font(.caption).foregroundStyle(Palette.muted) } } }
-                if reminderDraft { DatePicker("Reminder time", selection: $time, displayedComponents: .hourAndMinute).font(.subheadline) }
-                Button(working ? "Saving…" : "Save reminder preference") { saveReminder() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(working)
-                Text("Scheduled on your device. \(reminder ? "Daily reminder enabled." : "Daily reminder off.")").font(.caption2).foregroundStyle(Palette.muted)
-            }
-            SectionHeading(title: "Private by design")
-            Surface {
-                HStack(spacing: 14) {
-                    settingsIcon("faceid", tint: Palette.forest)
-                    Toggle(isOn: Binding(get: { biometricLock }, set: setLock)) { VStack(alignment: .leading, spacing: 5) { Text("Protect your journal").font(.subheadline.weight(.semibold)); Text("Face ID, Touch ID or device passcode").font(.caption).foregroundStyle(Palette.muted) } }
-                }
-                Divider()
-                HStack(alignment: .top, spacing: 14) { settingsIcon("accessibility", tint: Palette.forest); VStack(alignment: .leading, spacing: 6) { Text("Accessible, your way").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text("Follows your text size and VoiceOver settings. Use the speaker in Explore for a spoken route summary.").font(.caption).foregroundStyle(Palette.muted) } }
-            }
-            Surface {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 16) {
-                        SecureField("OpenWeather API key", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled().font(.subheadline).padding(14).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 13))
-                        Button("Save key on this device") {
-                            do { try KeyStore.save(key.trimmingCharacters(in: .whitespacesAndNewlines), key: "openweather"); key = ""; status = "API key saved in Keychain. Refresh Today or compare a route to request data." }
-                            catch { status = "Could not save the API key." }
-                        }.font(.subheadline.weight(.semibold)).disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        Text("The key is stored in device Keychain. Requests send the selected coordinates to OpenWeather.").font(.caption).foregroundStyle(Palette.muted)
-                        Link("OpenWeather API & attribution", destination: URL(string: "https://openweathermap.org/api/air-pollution")!).font(.caption)
-                    }.padding(.top, 16)
-                } label: {
-                    HStack(spacing: 14) { settingsIcon("cloud.sun", tint: Palette.forest); VStack(alignment: .leading, spacing: 6) { Text("Air-quality connection").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text(KeyStore.read("openweather").isEmpty ? "Add OpenWeather to see live data" : "API key saved on this device").font(.caption).foregroundStyle(Palette.muted) } }
-                }
-            }
-            Surface {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 16) {
-                        SecureField("openrouteservice API key", text: $routingKey).textInputAutocapitalization(.never).autocorrectionDisabled().font(.subheadline).padding(14).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 13))
-                        Button("Save routing key on this device") {
-                            do { try KeyStore.save(routingKey.trimmingCharacters(in: .whitespacesAndNewlines), key: "openrouteservice"); routingKey = ""; status = "Routing key saved in Keychain. New comparisons will use openrouteservice walking routes." }
-                            catch { status = "Could not save the routing key." }
-                        }.font(.subheadline.weight(.semibold)).disabled(routingKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        Text("Requests send the chosen start, destination and any excluded sample-area polygons to openrouteservice. OpenWeather still supplies air readings. The key stays in device Keychain.").font(.caption).foregroundStyle(Palette.muted)
-                        Link("openrouteservice API and attribution", destination: URL(string: "https://openrouteservice.org/dev/")!).font(.caption)
-                        Text("Route data: openrouteservice and OpenStreetMap contributors. Walking access and account limits need verification.").font(.caption2).foregroundStyle(Palette.muted)
-                    }.padding(.top, 16)
-                } label: {
-                    HStack(spacing: 14) { settingsIcon("arrow.triangle.branch", tint: Palette.forest); VStack(alignment: .leading, spacing: 6) { Text("Walking-route connection").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text(KeyStore.read("openrouteservice").isEmpty ? "Add routes and area-avoidance support" : "Routing key saved on this device").font(.caption).foregroundStyle(Palette.muted) } }
-                }
-            }
-            Surface {
-                DisclosureGroup("Understand your estimate") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Dose combines PM2.5 concentration, assumed ventilation and time. Easy, Brisk and Fast assume 15, 25 and 35 L/min. These are unvalidated coursework assumptions, not personalised measurements.")
-                        Text("OpenWeather AQI uses a 1–5 scale. Missing or stale samples reduce coverage. Nearby routes may share the same modelled pollution values.")
-                        Text("Walks are recorded while the app is open. Background gaps are excluded. BreatheRoute does not detect emergencies.")
-                    }.font(.caption).foregroundStyle(Palette.muted).padding(.top, 12)
-                }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
-            }
-            HStack(spacing: 8) { BrandMark(size: 24); Text("breathe route").font(.caption.weight(.semibold)); Spacer(); Text("ON-DEVICE JOURNAL").font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(1) }.foregroundStyle(Palette.muted).padding(.vertical, 8)
+            remindersAndPrivacyCard
+            healthAndMotionDisclosure
+            connectionsAndNotesCard
         }
         .adaptiveNavigationBar()
         .sheet(isPresented: $showAccount) { AccountAccessView(model: model) }
-        .onAppear { reminderDraft = reminder; if let saved = UserDefaults.standard.object(forKey: "reminderTime") as? Double { time = Date(timeIntervalSince1970: saved) } }
-        .alert("BreatheRoute", isPresented: Binding(get: { status != nil }, set: { if !$0 { status = nil } })) { Button("OK") { status = nil } } message: { Text(status ?? "") }
+        .onAppear {
+            reminderDraft = reminder
+            if let saved = UserDefaults.standard.object(forKey: "reminderTime") as? Double { time = Date(timeIntervalSince1970: saved) }
+        }
+        .alert("BreatheRoute", isPresented: Binding(get: { status != nil }, set: { if !$0 { status = nil } })) {
+            Button("OK") { status = nil }
+        } message: { Text(status ?? "") }
     }
-    private func vitalRecord(_ title: String, unit: String, record: HealthVitalRecord) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            LabeledContent(title, value: "\(record.value.formatted(.number.precision(.fractionLength(0)))) \(unit)").font(.subheadline)
-            Text("\(record.source) · \(record.date.formatted(date: .abbreviated, time: .shortened))\(record.manuallyEntered ? " · manually entered" : "")").font(.caption2).foregroundStyle(Palette.muted)
-        }.accessibilityElement(children: .combine)
-    }
-    private var profileCard: some View {
-        HStack(spacing: 18) {
-            ZStack { Circle().fill(Palette.lime).frame(width: 66, height: 66); Text(model.name.first.map { String($0).uppercased() } ?? "B").font(.system(.title, design: .serif)).foregroundStyle(Palette.deep) }
-            VStack(alignment: .leading, spacing: 8) { Text(model.name.isEmpty ? "Make yourself at home" : model.name).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink); StatusPill(title: model.account.identity == nil ? "Local profile" : "Account profile", symbol: "lock") }
-            Spacer(minLength: 0)
-        }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(Palette.line, lineWidth: 0.7))
-    }
-    private func settingsIcon(_ symbol: String, tint: Color) -> some View { Image(systemName: symbol).font(.subheadline).foregroundStyle(tint).frame(width: 38, height: 38).background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true) }
-    private func setLock(_ enabled: Bool) {
-        Task {
-            do { if try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: enabled ? "Protect your BreatheRoute journal" : "Turn off the journal lock") { biometricLock = enabled } }
-            catch { status = error.localizedDescription }
+
+    private var profileAndPreferencesCard: some View {
+        Surface {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(Palette.lime).frame(width: 56, height: 56)
+                    Text(model.name.first.map { String($0).uppercased() } ?? "B")
+                        .font(.system(.title2, design: .serif)).foregroundStyle(Palette.deep)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Your display name", text: $model.name).font(.headline).textContentType(.givenName)
+                    StatusPill(title: model.account.identity == nil ? "Local profile" : "Account profile", symbol: "lock")
+                }
+            }
+            Divider()
+            HStack {
+                settingsIcon("figure.walk", tint: Palette.forest)
+                Picker("Usual walking pace", selection: $model.intensity) {
+                    ForEach(WalkingIntensity.allCases) { Text($0.rawValue).tag($0) }
+                }.font(.subheadline)
+            }.disabled(model.activeRoute != nil || !model.routes.isEmpty)
         }
     }
+
+    private var remindersAndPrivacyCard: some View {
+        Surface {
+            SectionHeading(title: "Privacy & reminders")
+            HStack(spacing: 14) {
+                settingsIcon("faceid", tint: Palette.forest)
+                Toggle(isOn: Binding(get: { biometricLock }, set: setLock)) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Protect your journal").font(.subheadline.weight(.semibold))
+                        Text("Face ID, Touch ID or passcode").font(.caption).foregroundStyle(Palette.muted)
+                    }
+                }
+            }
+            Divider()
+            HStack(spacing: 14) {
+                settingsIcon("bell.badge", tint: Palette.forest)
+                Toggle(isOn: $reminderDraft) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Daily check-in reminder").font(.subheadline.weight(.semibold))
+                        Text(reminder ? "Enabled on this device" : "Off").font(.caption).foregroundStyle(Palette.muted)
+                    }
+                }
+            }
+            if reminderDraft {
+                DatePicker("Reminder time", selection: $time, displayedComponents: .hourAndMinute).font(.subheadline)
+            }
+            Button(working ? "Saving…" : "Save reminder preference") { saveReminder() }
+                .font(.caption.weight(.semibold)).frame(minHeight: 38).disabled(working)
+        }
+    }
+
+    private var healthAndMotionDisclosure: some View {
+        Surface {
+            DisclosureGroup("Health & motion sensors", isExpanded: $showHealthSection) {
+                VStack(alignment: .leading, spacing: 16) {
+                    MotionSettingsCard(model: model)
+                    HealthActivityCard(health: model.health)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Optional Apple Health vitals").font(.subheadline.weight(.semibold))
+                            Spacer()
+                            if model.health.isReadingVitals { ProgressView() }
+                        }
+                        Text(model.health.summary).font(.caption).foregroundStyle(Palette.muted)
+                        if let record = model.health.heartRecord { vitalRecord("Heart rate", unit: "bpm", record: record) }
+                        if let record = model.health.respiratoryRecord { vitalRecord("Respiratory rate", unit: "breaths/min", record: record) }
+                        Button("Read recent health records") { Task { await model.health.readRecentVitals() } }
+                            .font(.caption.weight(.semibold)).frame(minHeight: 38)
+                            .disabled(model.health.isReadingVitals || model.health.isReadingActivity)
+                    }
+                }.padding(.top, 12)
+            }.font(.headline).foregroundStyle(Palette.ink)
+        }
+    }
+
+    private var connectionsAndNotesCard: some View {
+        Surface {
+            SectionHeading(title: "Data connections & methodology")
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    SecureField("OpenWeather API key", text: $key)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.subheadline).padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
+                    Button("Save key on this device") {
+                        do {
+                            try KeyStore.save(key.trimmingCharacters(in: .whitespacesAndNewlines), key: "openweather")
+                            key = ""; status = "OpenWeather API key saved in Keychain."
+                        } catch { status = "Could not save the API key." }
+                    }.font(.subheadline.weight(.semibold)).disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Link("OpenWeather API & attribution", destination: URL(string: "https://openweathermap.org/api/air-pollution")!).font(.caption)
+                }.padding(.top, 10)
+            } label: {
+                connectionLabel(symbol: "cloud.sun", title: "Air-quality connection", ready: !KeyStore.read("openweather").isEmpty)
+            }
+            Divider()
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    SecureField("openrouteservice API key", text: $routingKey)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.subheadline).padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
+                    Button("Save routing key on this device") {
+                        do {
+                            try KeyStore.save(routingKey.trimmingCharacters(in: .whitespacesAndNewlines), key: "openrouteservice")
+                            routingKey = ""; status = "Routing key saved in Keychain."
+                        } catch { status = "Could not save the routing key." }
+                    }.font(.subheadline.weight(.semibold)).disabled(routingKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Link("openrouteservice API & attribution", destination: URL(string: "https://openrouteservice.org/dev/")!).font(.caption)
+                }.padding(.top, 10)
+            } label: {
+                connectionLabel(symbol: "arrow.triangle.branch", title: "Walking-route connection", ready: !KeyStore.read("openrouteservice").isEmpty)
+            }
+            Divider()
+            DisclosureGroup("Understand your estimate") {
+                Text("Dose combines PM2.5 (µg/m³), assumed ventilation (Easy 15, Brisk 25, Fast 35 L/min) and time. Missing or stale samples reduce coverage. Walks are recorded while the app is open.")
+                    .font(.caption).foregroundStyle(Palette.muted).padding(.top, 8)
+            }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
+        }
+    }
+
+    private func connectionLabel(symbol: String, title: String, ready: Bool) -> some View {
+        HStack(spacing: 12) {
+            settingsIcon(symbol, tint: Palette.forest)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                Text(ready ? "API key saved in Keychain" : "Not configured").font(.caption).foregroundStyle(Palette.muted)
+            }
+        }
+    }
+
+    private func vitalRecord(_ title: String, unit: String, record: HealthVitalRecord) -> some View {
+        LabeledContent(title, value: "\(record.value.formatted(.number.precision(.fractionLength(0)))) \(unit) · \(record.source)")
+            .font(.caption)
+    }
+
+    private func settingsIcon(_ symbol: String, tint: Color) -> some View {
+        Image(systemName: symbol).font(.subheadline).foregroundStyle(tint)
+            .frame(width: 34, height: 34).background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityHidden(true)
+    }
+
+    private func setLock(_ enabled: Bool) {
+        Task {
+            do {
+                if try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: enabled ? "Protect your BreatheRoute journal" : "Turn off the journal lock") {
+                    biometricLock = enabled
+                }
+            } catch { status = error.localizedDescription }
+        }
+    }
+
     private func saveReminder() {
         working = true
         Task {
             defer { working = false }
             do {
                 let enabled = try await ReminderService().setDaily(enabled: reminderDraft, at: time)
-                status = enabled ? "Daily reminder scheduled." : (reminderDraft ? "Notifications are unavailable. You can enable them in device Settings." : "Daily reminder removed.")
+                status = enabled ? "Daily reminder scheduled." : (reminderDraft ? "Notifications are unavailable in Settings." : "Daily reminder removed.")
                 reminder = enabled; reminderDraft = enabled
                 UserDefaults.standard.set(time.timeIntervalSince1970, forKey: "reminderTime")
             } catch { status = error.localizedDescription }

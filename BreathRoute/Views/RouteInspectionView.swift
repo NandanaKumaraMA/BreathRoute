@@ -20,7 +20,6 @@ struct RouteComparisonLayers: MapContent {
                     .stroke(AirMapStyle.colour(sample.reading).opacity(0.8), lineWidth: 1.5)
             }
         }
-        // Alternatives draw first, keeping the selected line visible where paths overlap.
         ForEach(routes.filter { $0.id != selectedID }) { route in
             MapPolyline(route.polyline).stroke(RouteMapPresentation.alternative,
                 style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round, dash: [8, 5]))
@@ -90,17 +89,17 @@ struct RouteCoverageBanner: View {
         let estimate = route.sampledEstimate(ventilation: ventilation)
         Button(action: inspect) {
             HStack(spacing: 12) {
-                Image(systemName: "aqi.medium").font(.title2).foregroundStyle(Palette.forest)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Pollution coverage & alternative paths").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                    Text("\(Int(estimate.coverage * 100))% sampled time · \(route.airSamples.count) air points\(route.demo ? " · demo" : "")")
+                Image(systemName: "aqi.medium").font(.title3).foregroundStyle(Palette.forest)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Route details & air samples").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                    Text("\(Int(estimate.coverage * 100))% sampled · \(route.airSamples.count) points · \(doseText(estimate.observedDose))")
                         .font(.caption).foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(Palette.forest)
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.line))
+            }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Palette.line))
         }.buttonStyle(PressStyle())
     }
 }
@@ -110,6 +109,7 @@ struct RouteInspectionView: View {
     @State private var camera: MapCameraPosition = .automatic
     @State private var showAir = true
     @State private var showForecast = false
+    @State private var showSamples = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     private var selected: WalkRoute? { model.activeRoute ?? model.selected }
@@ -118,31 +118,16 @@ struct RouteInspectionView: View {
         NavigationStack {
             Page {
                 if let route = selected {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Eyebrow(text: route.demo ? "Illustrative route · demo data" : "Your selected walking path")
-                        Text(route.name.isEmpty ? "Walking route" : route.name).font(.title2.bold()).foregroundStyle(Palette.ink)
-                        Text(model.activeRoute == nil ? "Choose a numbered path to compare its air samples." : "Air samples for your open walk. Remaining-path changes are available in Rerouting.")
-                            .font(.subheadline).foregroundStyle(Palette.muted)
-                    }
                     routePicker
                     comparisonMap(route)
-                    RouteLineLegend()
-                    coverage(route)
-                    if model.activeRoute == nil {
-                        Surface {
-                            SectionHeading(title: "When to walk")
-                            Text("Compare hourly forecasts and estimated dose for different departure times on this path.").font(.subheadline).foregroundStyle(Palette.muted)
-                            Button("Compare departure-time forecasts", systemImage: "clock.badge.checkmark") { showForecast = true }
-                                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                        }
-                    }
-                    alternatives(route)
-                    sampleList(route)
+                    summaryCard(route)
+                    if model.routes.count > 1 { alternatives(route) }
+                    sampleDisclosure(route)
                 } else {
                     ContentUnavailableView("No route selected", systemImage: "map", description: Text("Find walking routes in Explore to compare their air samples."))
                 }
             }
-            .navigationTitle("Route & air quality").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(selected?.name.isEmpty == false ? selected!.name : "Route details").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { fitRoutes() }
             .onChange(of: model.routes.map(\.id)) { _, _ in fitRoutes() }
@@ -151,6 +136,7 @@ struct RouteInspectionView: View {
             }
         }.presentationDetents([.large]).presentationDragIndicator(.visible)
     }
+
     private var routePicker: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
@@ -159,7 +145,7 @@ struct RouteInspectionView: View {
                         HStack(spacing: 6) {
                             Image(systemName: route.id == selected?.id ? "checkmark.circle.fill" : "arrow.triangle.branch")
                             Text("Route \(index + 1) · \(Int(route.seconds / 60)) min")
-                        }.font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 44)
+                        }.font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 40)
                             .foregroundStyle(route.id == selected?.id ? Palette.lime : Palette.forest)
                             .background(route.id == selected?.id ? Palette.deep : Palette.surface, in: Capsule())
                     }.buttonStyle(.plain).disabled(model.activeRoute != nil && route.id != selected?.id)
@@ -168,98 +154,86 @@ struct RouteInspectionView: View {
             }
         }.scrollIndicators(.hidden)
     }
+
     private func comparisonMap(_ route: WalkRoute) -> some View {
         Map(position: $camera) {
             RouteComparisonLayers(routes: model.routes, selectedID: route.id, showAir: showAir, showSamplePins: true, showRouteLabels: false, select: select)
-            if let first = route.coordinates.first { Marker("A · Start", coordinate: first).tint(Palette.deep) }
-            if let last = route.coordinates.last { Marker("B · Destination", coordinate: last).tint(Palette.deep) }
+            if let first = route.coordinates.first { Marker("Start", coordinate: first).tint(Palette.deep) }
+            if let last = route.coordinates.last { Marker("Destination", coordinate: last).tint(Palette.deep) }
         }.mapStyle(.standard(pointsOfInterest: .excludingAll))
-            .mapControls { MapCompass(); MapScaleView() }
-            .frame(height: typeSize.isAccessibilitySize ? 380 : 300)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .frame(height: typeSize.isAccessibilitySize ? 300 : 230)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(alignment: .bottomTrailing) {
-                Button(action: fitRoutes) { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.headline).frame(width: 44, height: 44).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
-                    .accessibilityLabel("Fit all route paths and sample areas").padding(12)
+                Button(action: fitRoutes) { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.subheadline.bold()).frame(width: 40, height: 40).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10)) }
+                    .accessibilityLabel("Fit all routes").padding(10)
             }
     }
-    private func coverage(_ route: WalkRoute) -> some View {
+
+    private func summaryCard(_ route: WalkRoute) -> some View {
         let estimate = route.sampledEstimate(ventilation: model.intensity.ventilation)
         let usable = route.airSamples.filter { $0.reading?.isFresh == true }.count
         return Surface {
-            SectionHeading(title: "Pollution coverage", detail: route.demo ? "Synthetic" : "API samples")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 280 : 130))], alignment: .leading, spacing: 18) {
-                Metric(title: "Sampled trip time", value: "\(Int(estimate.coverage * 100))%")
-                Metric(title: "Recent air points", value: "\(usable) / \(route.airSamples.count)")
-                Metric(title: "Walking distance", value: String(format: "%.2f km", route.metres / 1000))
-                Metric(title: estimate.isComplete ? "Estimated dose" : "Partial estimated dose", value: estimate.observedDose.map { String(format: "%.1f µg", $0) } ?? "Unavailable")
+            SectionHeading(title: "Coverage & exposure", detail: route.demo ? "Synthetic demo" : "\(usable)/\(route.airSamples.count) fresh points")
+            HStack(spacing: 16) {
+                Metric(title: "Coverage", value: "\(Int(estimate.coverage * 100))%")
+                Metric(title: "Distance", value: String(format: "%.2f km", route.metres / 1000))
+                Metric(title: "Est. dose", value: doseText(estimate.observedDose))
             }
             ProgressView(value: estimate.coverage).tint(Palette.forest)
-            Toggle("Show pollution sample areas", isOn: $showAir).font(.subheadline)
-            AirMapLegend()
-            InfoNote(text: "Coverage is the share of estimated trip time assigned a usable PM2.5 sample. It does not describe the percentage of land measured. Dose assumes \(Int(model.intensity.ventilation * 1000)) L/min breathing volume.")
-            if route.demo { InfoNote(symbol: "sparkles", text: "These air values and route metrics are synthetic examples. Live pollution and routing have not been requested.") }
-            if route.airSamples.isEmpty { InfoNote(text: "No air points are available for this route. No pollution area or zero-exposure estimate has been invented.") }
+            Toggle("Show sample circles on map", isOn: $showAir).font(.subheadline)
+            if model.activeRoute == nil {
+                Divider()
+                Button { showForecast = true } label: {
+                    Label("Compare departure times (When to walk)", systemImage: "clock.badge.checkmark")
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                }
+            }
         }
     }
+
     private func alternatives(_ selectedRoute: WalkRoute) -> some View {
         let options = model.routes.filter { $0.id != selectedRoute.id }
         return Surface {
-            SectionHeading(title: "Alternative paths", detail: "\(options.count) available")
-            if options.isEmpty {
-                InfoNote(text: "The provider returned only this path. Another walking path is not guaranteed for this A–B journey.")
-            } else {
-                ForEach(options) { route in
-                    Button { select(route) } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack { Text(route.name.isEmpty ? "Alternative walking path" : route.name).font(.subheadline.weight(.semibold)); Spacer(); Image(systemName: "arrow.up.right") }
-                            Text(comparison(route, with: selectedRoute)).font(.caption).foregroundStyle(Palette.muted)
+            SectionHeading(title: "Alternatives", detail: "\(options.count)")
+            ForEach(options) { route in
+                Button { select(route) } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(route.name.isEmpty ? "Alternative path" : route.name).font(.subheadline.weight(.semibold))
                             let estimate = route.sampledEstimate(ventilation: model.intensity.ventilation)
-                            Text("\(Int(estimate.coverage * 100))% sampled time · \(estimate.observedDose.map { String(format: "%.1f µg", $0) } ?? "Unavailable dose")\(estimate.isComplete ? " estimated dose" : " · incomplete")")
+                            Text("\(Int(route.seconds / 60)) min · \(String(format: "%.2f km", route.metres / 1000)) · \(doseText(estimate.observedDose))")
                                 .font(.caption).foregroundStyle(Palette.muted)
-                        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 14))
-                    }.buttonStyle(PressStyle()).foregroundStyle(Palette.forest).disabled(model.activeRoute != nil)
-                }
-            }
-            if let notice = model.routeNotice { InfoNote(text: notice) }
-            if model.activeRoute != nil {
-                InfoNote(text: "This walk is already recording. Use the Rerouting controls in Explore to compare and switch the remaining path while keeping completed intervals.")
-            }
-            if !selectedRoute.demo && model.activeRoute == nil {
-                Button { Task { await model.addAvoidanceOption() } } label: {
-                    Label(model.busy ? "Finding an avoidance path…" : "Find a pollution-area avoidance path", systemImage: "arrow.triangle.branch")
-                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                }.disabled(model.busy)
-                InfoNote(text: "Uses your openrouteservice connection to avoid eligible fresh AQI 3–5 sample circles. A detour may take longer or increase estimated dose.")
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.caption)
+                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
+                }.buttonStyle(PressStyle()).foregroundStyle(Palette.forest).disabled(model.activeRoute != nil)
             }
         }
     }
-    private func sampleList(_ route: WalkRoute) -> some View {
+
+    private func sampleDisclosure(_ route: WalkRoute) -> some View {
         Surface {
-            SectionHeading(title: "Air points along this path")
-            ForEach(Array(route.airSamples.enumerated()), id: \.element.id) { index, sample in
-                HStack(alignment: .top, spacing: 12) {
-                    Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white).frame(width: 30, height: 30).background(AirMapStyle.colour(sample.reading), in: Circle())
-                    VStack(alignment: .leading, spacing: 5) {
-                        if let reading = sample.reading {
-                            Text(String(format: "PM2.5 %.1f µg/m³", reading.pm25)).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                            Text("AQI \(reading.aqi)/5 · \(reading.label)\(reading.isFresh ? "" : " · stale")").font(.caption).foregroundStyle(Palette.muted)
-                            Text("\(reading.demo ? "Synthetic example" : "Provider sample") · \(reading.date.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption2).foregroundStyle(Palette.muted)
-                        } else {
-                            Text("Air data unavailable").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                            Text("This point contributes no estimated dose. Its interval remains missing coverage.").font(.caption).foregroundStyle(Palette.muted)
+            DisclosureGroup("Air sample points (\(route.airSamples.count))", isExpanded: $showSamples) {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(route.airSamples.enumerated()), id: \.element.id) { index, sample in
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white).frame(width: 26, height: 26).background(AirMapStyle.colour(sample.reading), in: Circle())
+                            if let reading = sample.reading {
+                                Text(String(format: "PM2.5 %.1f µg/m³ · AQI %d (%@)", reading.pm25, reading.aqi, reading.label))
+                                    .font(.caption).foregroundStyle(Palette.ink)
+                            } else {
+                                Text("Air data unavailable").font(.caption).foregroundStyle(Palette.muted)
+                            }
+                            Spacer()
                         }
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
-            }
+                    InfoNote(text: "Dose assumes \(Int(model.intensity.ventilation * 1000)) L/min breathing volume.")
+                }.padding(.top, 10)
+            }.font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
         }
     }
-    private func comparison(_ route: WalkRoute, with current: WalkRoute) -> String {
-        let minutes = (route.seconds - current.seconds) / 60
-        let time = abs(minutes) < 0.5 ? "Similar travel time" : "\(Int(abs(minutes).rounded())) min \(minutes > 0 ? "longer" : "quicker")"
-        return "\(Int(route.seconds / 60)) min · \(String(format: "%.2f km", route.metres / 1000)) · \(time)"
-    }
+
     private func select(_ route: WalkRoute) {
         guard model.activeRoute == nil else { return }
         model.selectedRoute = route.id
@@ -269,13 +243,9 @@ struct RouteInspectionView: View {
 
 struct RouteLineLegend: View {
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) { lines }
-            VStack(alignment: .leading, spacing: 8) { lines }
+        HStack(spacing: 16) {
+            Label("Selected", systemImage: "line.diagonal").foregroundStyle(Palette.forest)
+            Label("Alternatives", systemImage: "point.topleft.down.to.point.bottomright.curvepath").foregroundStyle(RouteMapPresentation.alternative)
         }
-    }
-    @ViewBuilder private var lines: some View {
-        Label("Solid green: selected", systemImage: "line.diagonal").foregroundStyle(Palette.forest)
-        Label("Dashed purple: alternatives", systemImage: "point.topleft.down.to.point.bottomright.curvepath").foregroundStyle(RouteMapPresentation.alternative)
     }
 }

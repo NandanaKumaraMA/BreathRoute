@@ -32,18 +32,22 @@ struct PlannerView: View {
     @State private var showRouteDetails = false
     @State private var showDepartureForecast = false
     @State private var showFullMapRouteDetails = false
+    @State private var showNearbyWhenRouted = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     enum SearchTarget: String, Identifiable { case start, destination; var id: String { rawValue } }
     enum NearbyOrigin { case current, manual, map, preview }
     enum ToolAction { case configure, plan }
+
     var body: some View {
         GeometryReader { geometry in
             Page {
-                PageHeader(title: model.activeRoute == nil ? "Find your next stop." : "Enjoy your walk.", subtitle: model.activeRoute == nil ? "Explore your surroundings" : "Walk in progress", symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                PageHeader(title: model.activeRoute == nil ? "Explore routes." : "Enjoy your walk.",
+                           subtitle: model.activeRoute == nil ? "Plan & compare" : "Walk in progress",
+                           symbol: "point.topleft.down.to.point.bottomright.curvepath")
                 RecoveryCard(model: model)
                 WalkToolsLauncher(model: model) { walkTool = $0 }
-                ForecastLauncher(active: model.activeRoute != nil) { showDepartureForecast = true }
                 if model.demo {
                     HStack(spacing: 10) {
                         StatusPill(title: "Demo", symbol: "sparkles")
@@ -54,19 +58,19 @@ struct PlannerView: View {
                 }
                 if geometry.size.width >= 800 {
                     HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 16) { routeMap(height: 620); airLegend; coverageBanner }
-                        VStack(alignment: .leading, spacing: 20) { planningControls; routeOptions }.frame(width: 340)
+                        VStack(alignment: .leading, spacing: 14) { routeMap(height: 580); mapStatusStrip; coverageBanner }
+                        VStack(alignment: .leading, spacing: 18) { planningControls; routeOptions }.frame(width: 340)
                     }
-                    if model.activeRoute == nil { nearbyPlaces }
+                    if model.activeRoute == nil { nearbySection }
                 } else {
-                    routeMap(height: typeSize.isAccessibilitySize ? 510 : 420)
-                    airLegend
+                    routeMap(height: typeSize.isAccessibilitySize ? 480 : 390)
+                    mapStatusStrip
                     coverageBanner
-                    if model.activeRoute == nil && model.routes.isEmpty { nearbyPlaces }
-                    planningControls; routeOptions
-                    if model.activeRoute == nil && !model.routes.isEmpty { nearbyPlaces }
+                    planningControls
+                    routeOptions
+                    if model.activeRoute == nil { nearbySection }
                 }
-                if waitingForLocation { InfoNote(symbol: "location", text: model.location.message + " The map area remains available while waiting for a recent location.") }
+                if waitingForLocation { InfoNote(symbol: "location", text: model.location.message) }
                 if let locationNotice { InfoNote(symbol: "location", text: locationNotice) }
             }
         }
@@ -89,8 +93,7 @@ struct PlannerView: View {
             toolAction = nil
             switch action {
             case .configure: model.section = .profile
-            case .plan:
-                if model.selected?.demo != false { searchTarget = .destination }
+            case .plan: if model.selected?.demo != false { searchTarget = .destination }
             }
         }) { tool in
             WalkToolsSheet(tool: tool, model: model, configure: { toolAction = .configure; walkTool = nil }, plan: { toolAction = .plan; walkTool = nil })
@@ -99,11 +102,10 @@ struct PlannerView: View {
             NavigationStack {
                 map(expanded: true)
                     .safeAreaInset(edge: .bottom) {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
                             if searchMovedArea && model.activeRoute == nil { searchAreaButton }
                             if showAir { AirMapLegend() }
-                            Text(discovery.scope).font(.caption).foregroundStyle(Palette.muted)
-                        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
                     }
                     .navigationTitle("Explore map").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { expandedMap = false } } }
@@ -160,30 +162,30 @@ struct PlannerView: View {
             catch { return }
             if model.location.currentLocation == nil {
                 waitingForLocation = false; pendingComparison = false
-                locationNotice = "A recent location is unavailable. Choose a start manually or check Location access in Settings, then try again."
+                locationNotice = "A recent location is unavailable. Choose a start manually or check Location access in Settings."
             }
         }
         .sensoryFeedback(.selection, trigger: model.selectedRoute)
         .onDisappear { model.voice.stop(); speaking = false }
     }
+
     private func routeMap(height: CGFloat) -> some View {
         map(expanded: false)
-        .overlay(alignment: .topLeading) {
-            if model.activeRoute == nil { journeyFields.padding(14).padding(.trailing, 35) }
-            else { StatusPill(title: model.demo ? "Demo session" : "Tracking while app is open", symbol: "record.circle", tint: Palette.deep).padding(16).background(.regularMaterial, in: Capsule()).padding(14) }
-        }
-        .overlay(alignment: .bottomLeading) {
-            VStack(alignment: .leading, spacing: 8) {
-                if searchMovedArea && model.activeRoute == nil { searchAreaButton }
-                if !model.remainingOptions.isEmpty { Text("Dashed: remaining options").font(.caption2.weight(.medium)).padding(9).background(.regularMaterial, in: Capsule()) }
-                Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "route" : "routes")")
-                    .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 9).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
-            }.padding(14).padding(.trailing, 56)
-        }
-        .frame(height: height).clipShape(RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).stroke(Palette.line, lineWidth: 0.7))
-
+            .overlay(alignment: .topLeading) {
+                if model.activeRoute == nil { journeyFields.padding(12).padding(.trailing, 32) }
+                else { StatusPill(title: model.demo ? "Demo session" : "Tracking while open", symbol: "record.circle", tint: Palette.deep).padding(12).background(.regularMaterial, in: Capsule()).padding(12) }
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if searchMovedArea && model.activeRoute == nil { searchAreaButton }
+                    Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "route" : "routes")")
+                        .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 8).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
+                }.padding(12).padding(.trailing, 54)
+            }
+            .frame(height: height).clipShape(RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).stroke(Palette.line, lineWidth: 0.7))
     }
+
     private func map(expanded: Bool) -> some View {
         ExploreMapView(model: model, discovery: discovery, camera: $camera, style: $mapStyle, elevated: $elevated, showAir: $showAir, destination: destination, region: visibleRegion, expanded: expanded, select: { place in
             if expanded { fullMapPlace = place } else { placeDetail = place }
@@ -198,80 +200,117 @@ struct PlannerView: View {
             searchMovedArea = distance > max(250, radius * 0.15)
         }, useLocation: useCurrentLocation, expand: { expandedMap.toggle() })
     }
-    @ViewBuilder private var airLegend: some View {
-        if !model.routes.isEmpty { RouteLineLegend().font(.caption2) }
-        if showAir && (!(model.selected?.airSamples.isEmpty ?? true) || !discovery.airByPlace.isEmpty) { AirMapLegend() }
+
+    @ViewBuilder private var mapStatusStrip: some View {
+        HStack {
+            if showAir && (!(model.selected?.airSamples.isEmpty ?? true) || !discovery.airByPlace.isEmpty) {
+                AirMapLegend()
+            }
+            Spacer(minLength: 8)
+            Button { showDepartureForecast = true } label: {
+                Label("When to walk", systemImage: "clock.badge.checkmark")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .foregroundStyle(Palette.forest)
+                    .background(Palette.surface, in: Capsule())
+                    .overlay(Capsule().stroke(Palette.line, lineWidth: 0.7))
+            }.disabled(model.activeRoute != nil)
+        }
     }
+
     @ViewBuilder private var coverageBanner: some View {
         if let route = model.activeRoute ?? model.selected {
             RouteCoverageBanner(route: route, ventilation: model.intensity.ventilation) { showRouteDetails = true }
         }
     }
-    private var nearbyPlaces: some View {
-        NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
+
+    @ViewBuilder private var nearbySection: some View {
+        if model.routes.isEmpty {
+            NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
+        } else {
+            Surface {
+                DisclosureGroup("Nearby places to explore", isExpanded: $showNearbyWhenRouted) {
+                    NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
+                        .padding(.top, 12)
+                }.font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+            }
+        }
     }
+
     private var searchAreaButton: some View {
         Button { origin = .map; refreshNearby() } label: {
-            Label("Search this area", systemImage: "arrow.clockwise").font(.caption.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 12).foregroundStyle(Palette.lime).background(Palette.deep, in: Capsule())
+            Label("Search this area", systemImage: "arrow.clockwise").font(.caption.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(Palette.lime).background(Palette.deep, in: Capsule())
         }.buttonStyle(PressStyle())
     }
+
     private var journeyFields: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(spacing: 5) {
                 Circle().stroke(Palette.forest, lineWidth: 2).frame(width: 9, height: 9)
-                Rectangle().fill(Palette.line).frame(width: 1, height: 22)
-                Image(systemName: "mappin.circle.fill").font(.system(size: 15)).foregroundStyle(Palette.forest)
-            }.padding(.top, 16).accessibilityHidden(true)
+                Rectangle().fill(Palette.line).frame(width: 1, height: 20)
+                Image(systemName: "mappin.circle.fill").font(.system(size: 14)).foregroundStyle(Palette.forest)
+            }.padding(.top, 14).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
                 Button { searchTarget = .start } label: {
-                    HStack { Text(start?.name ?? "Current location").font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "chevron.down").font(.caption2) }.frame(minHeight: 44)
+                    HStack { Text(start?.name ?? "Current location").font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "chevron.down").font(.caption2) }.frame(minHeight: 40)
                 }.accessibilityLabel("Start: \(start?.name ?? "Current location"). Change start")
                 Divider()
                 Button { searchTarget = .destination } label: {
-                    HStack { Text(destination?.name ?? (model.demo ? "Viharamahadevi Park · demo" : "Where to?")).font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "magnifyingglass").font(.caption) }.frame(minHeight: 44)
+                    HStack { Text(destination?.name ?? (model.demo ? "Viharamahadevi Park · demo" : "Where to?")).font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "magnifyingglass").font(.caption) }.frame(minHeight: 40)
                 }.accessibilityLabel("Destination: \(destination?.name ?? "Choose destination")")
             }
-        }.padding(.horizontal, 16).padding(.vertical, 4).foregroundStyle(Palette.ink).background(Palette.surface, in: RoundedRectangle(cornerRadius: 18)).shadow(color: .black.opacity(0.07), radius: 16, y: 5)
+        }.padding(.horizontal, 14).padding(.vertical, 4).foregroundStyle(Palette.ink).background(Palette.surface, in: RoundedRectangle(cornerRadius: 16)).shadow(color: .black.opacity(0.07), radius: 12, y: 4)
     }
+
     @ViewBuilder private var planningControls: some View {
         if model.activeRoute == nil {
             HStack {
-                Label("Walking pace", systemImage: "figure.walk").font(.caption.weight(.medium)).foregroundStyle(Palette.muted)
-                Spacer()
+                Label("Pace", systemImage: "figure.walk").font(.caption.weight(.medium)).foregroundStyle(Palette.muted)
                 Picker("Walking intensity", selection: $model.intensity) { ForEach(WalkingIntensity.allCases) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.menu).font(.subheadline.weight(.semibold)).disabled(!model.routes.isEmpty)
+                Spacer()
+                if start != nil {
+                    Button("Use my location") { start = nil; clearRoutes(); useCurrentLocation() }.font(.caption.weight(.semibold))
+                }
             }
-            if start != nil { Button("Use current location instead") { start = nil; clearRoutes(); useCurrentLocation() }.font(.caption).frame(minHeight: 44) }
             if !model.demo {
-                PrimaryButton(title: pendingComparison ? "Getting your location…" : (model.routes.isEmpty ? "Find walking routes" : "Refresh route comparison"), symbol: "arrow.triangle.branch") { compare() }
+                PrimaryButton(title: pendingComparison ? "Getting location…" : (model.routes.isEmpty ? "Find walking routes" : "Refresh routes"), symbol: "arrow.triangle.branch") { compare() }
                     .disabled(destination == nil || model.busy || pendingComparison)
             }
             if model.busy {
-                HStack(spacing: 12) { ProgressView().tint(Palette.forest); VStack(alignment: .leading, spacing: 5) { Text("Comparing your options").font(.subheadline.weight(.semibold)); Text("Walking routes, air samples & estimated dose").font(.caption).foregroundStyle(Palette.muted) } }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
+                HStack(spacing: 12) { ProgressView().tint(Palette.forest); Text("Comparing routes & air samples…").font(.subheadline).foregroundStyle(Palette.muted) }
+                    .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 16))
             }
         }
     }
+
     @ViewBuilder private var routeOptions: some View {
         if let route = model.activeRoute {
             activeCard(route)
             ActiveMotionCard(model: model, demo: route.demo)
             if !route.demo {
-                Button { walkTool = .rerouting } label: { Label("Open rerouting controls", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
+                Button { walkTool = .rerouting } label: { Label("Rerouting controls", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
             }
-        }
-        else if model.routes.isEmpty {
+        } else if model.routes.isEmpty {
             Surface {
-                HStack(spacing: 14) {
-                    Image(systemName: "arrow.triangle.branch").font(.title2).foregroundStyle(Palette.forest).frame(width: 48, height: 48).background(Palette.forest.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
-                    VStack(alignment: .leading, spacing: 5) { Text("There’s more than one way").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink); Text("Compare time, distance & estimated exposure.").font(.caption).foregroundStyle(Palette.muted) }
+                HStack(spacing: 12) {
+                    Image(systemName: "sparkles").font(.title3).foregroundStyle(Palette.forest)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Try an example route comparison").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                        Text("Preview time, distance & modelled exposure.").font(.caption).foregroundStyle(Palette.muted)
+                    }
+                    Spacer()
+                    Button("Load demo") { model.loadDemo(); focusRoutes() }.font(.caption.weight(.semibold))
                 }
-                Button { model.loadDemo(); focusRoutes() } label: { HStack { Text("See an example comparison"); Spacer(); Image(systemName: "arrow.up.right") }.font(.caption.weight(.semibold)).padding(.vertical, 8) }
             }
         } else {
-            SectionHeading(title: "Choose your walk", detail: "\(model.routes.count) options")
-            Picker("Extra-time budget for recommendations", selection: $model.extraMinutes) {
-                Text("5 min extra").tag(5.0); Text("10 min extra").tag(10.0); Text("20 min extra").tag(20.0)
-            }.pickerStyle(.menu).font(.caption)
+            HStack {
+                SectionHeading(title: "Routes", detail: "\(model.routes.count) options")
+                Spacer()
+                Picker("Extra-time budget", selection: $model.extraMinutes) {
+                    Text("+5m").tag(5.0); Text("+10m").tag(10.0); Text("+20m").tag(20.0)
+                }.pickerStyle(.menu).font(.caption)
+            }
             ForEach(model.routes) { route in
                 RouteChoiceCard(route: route, routes: model.routes,
                                 ventilation: model.intensity.ventilation,
@@ -279,32 +318,30 @@ struct PlannerView: View {
                     model.selectedRoute = route.id; showAir = true; showRouteDetails = true
                 }
             }
-            if model.bestRouteID == nil && model.routes.count > 1 { InfoNote(text: "No clear winner within your extra-time budget. Open a route for details.") }
             if let notice = model.routeNotice { InfoNote(text: notice) }
             if !model.demo {
-                Button("Find an area-avoidance option") {
+                Button("Add pollution-avoidance detour") {
                     routeTask?.cancel(); routeTask = Task { await model.addAvoidanceOption() }
                 }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.busy)
-                InfoNote(text: "Tries to route around areas with poorer air. A longer detour can increase exposure.")
             }
         }
     }
+
     private func activeCard(_ route: WalkRoute) -> some View {
         Surface {
-            HStack { SectionHeading(title: "Your walk, so far"); StatusPill(title: "Active", symbol: "record.circle") }
+            HStack { SectionHeading(title: "Active walk"); StatusPill(title: "Recording", symbol: "record.circle") }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 HStack {
                     Metric(title: "Elapsed", value: "\(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date) / 60)) min")
-                    Metric(title: "Recorded distance", value: String(format: "%.0f m", model.trackedMetres))
+                    Metric(title: "Distance", value: String(format: "%.0f m", model.trackedMetres))
+                    Metric(title: "Est. dose", value: doseText(model.activeEstimate.observedDose))
                 }
             }
-            Divider()
-            HStack { Text("Recorded estimated dose").font(.subheadline); Spacer(); Text(doseText(model.activeEstimate.observedDose)).font(.headline) }
             InfoNote(text: model.trackingMessage)
-            if let saved = model.lastCheckpoint { Text("Recovery saved \(saved.formatted(date: .omitted, time: .shortened)) · \(model.recordedPath.count) GPS fixes").font(.caption2).foregroundStyle(Palette.muted) }
             if let message = model.checkpointMessage { InfoNote(symbol: "exclamationmark.triangle", text: message) }
         }
     }
+
     @ViewBuilder private var walkAction: some View {
         if model.activeRoute != nil || model.selected != nil {
             HStack(spacing: 12) {
@@ -314,13 +351,14 @@ struct PlannerView: View {
                 if let route = model.selected, model.activeRoute == nil {
                     Button {
                         if speaking { model.voice.stop(); speaking = false }
-                        else { model.voice.speak("\(route.name). \(Int(route.seconds/60)) minutes. \(Int(route.metres)) metres. Estimated dose \(doseText(route.estimate.observedDose)). Sample coverage \(Int(route.estimate.coverage*100)) percent. \(route.demo ? "Demo data." : "For awareness only.")"); speaking = true }
-                    } label: { Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.headline).foregroundStyle(Palette.deep).frame(width: 56, height: 56).background(Palette.lime, in: RoundedRectangle(cornerRadius: 18)) }
+                        else { model.voice.speak("\(route.name). \(Int(route.seconds/60)) minutes. \(Int(route.metres)) metres. Estimated dose \(doseText(route.estimate.observedDose)). Sample coverage \(Int(route.estimate.coverage*100)) percent."); speaking = true }
+                    } label: { Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.headline).foregroundStyle(Palette.deep).frame(width: 54, height: 54).background(Palette.lime, in: RoundedRectangle(cornerRadius: 16)) }
                         .accessibilityLabel(speaking ? "Stop reading route summary" : "Read route summary aloud")
                 }
-            }.padding(.horizontal, 22).padding(.vertical, 12).frame(maxWidth: 800).frame(maxWidth: .infinity).background(.regularMaterial)
+            }.padding(.horizontal, 22).padding(.vertical, 10).frame(maxWidth: 800).frame(maxWidth: .infinity).background(.regularMaterial)
         }
     }
+
     private func compare() {
         guard let destination else { return }
         guard let coordinate = start?.placemark.coordinate ?? model.location.currentLocation?.coordinate else {
@@ -339,8 +377,7 @@ struct PlannerView: View {
         clearRoutes(); destination = place.item; focus(on: place.coordinate)
     }
     private func useCurrentLocation() {
-        locationNotice = nil
-        model.location.request()
+        locationNotice = nil; model.location.request()
         guard let location = model.location.currentLocation else { waitingForLocation = true; return }
         waitingForLocation = false
         if model.activeRoute != nil { focus(on: location.coordinate); return }
@@ -352,9 +389,7 @@ struct PlannerView: View {
         let scope: String
         switch origin {
         case .current:
-            guard let current = model.location.currentLocation else {
-                waitingForLocation = true; model.location.request(); return
-            }
+            guard let current = model.location.currentLocation else { waitingForLocation = true; model.location.request(); return }
             coordinate = current.coordinate; scope = "Near your current location"
         case .manual:
             guard let start else { origin = .preview; refreshNearby(recenter: recenter); return }
