@@ -90,6 +90,7 @@ struct RecordedPathView: View {
 struct RecoveryCard: View {
     @Bindable var model: AppModel
     @State private var discard = false
+    @State private var previewSavedRoute = false
     var body: some View {
         if let draft = model.pendingRecovery {
             Surface {
@@ -99,9 +100,16 @@ struct RecoveryCard: View {
                     .font(.caption).foregroundStyle(Palette.muted)
                 InfoNote(text: "The app was closed before this walk finished. Resume keeps recorded portions and starts a new path section. Time while the app was closed remains unobserved.")
                 PrimaryButton(title: "Resume saved walk", symbol: "figure.walk") { model.resumeRecovery() }
+                if AppModel.usesSimulator {
+                    Button("Preview this saved route", systemImage: "play.circle") { previewSavedRoute = true }
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    Text("Preview uses a separate temporary journal. This unfinished walk stays unchanged.")
+                        .font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                }
                 Button("Save recorded portion") { model.saveRecoveryPortion() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                 Button("Discard unfinished walk", role: .destructive) { discard = true }.font(.caption).frame(minHeight: 44)
-            }.confirmationDialog("Discard this unfinished walk?", isPresented: $discard, titleVisibility: .visible) {
+            }.fullScreenCover(isPresented: $previewSavedRoute) { SavedRoutePreview(route: draft.route) }
+            .confirmationDialog("Discard this unfinished walk?", isPresented: $discard, titleVisibility: .visible) {
                 Button("Discard recorded portions", role: .destructive) { model.discardRecovery() }
             } message: { Text("Its unfinished recording will be removed from this device.") }
         } else if model.unreadableRecovery {
@@ -113,5 +121,38 @@ struct RecoveryCard: View {
                 Button("Discard unfinished walk", role: .destructive) { model.discardRecovery() }
             }
         }
+    }
+}
+
+
+/// Previewing a recovery route must not overwrite the user's unfinished checkpoint.
+private struct SavedRoutePreview: View {
+    let route: SavedRoute
+    @State private var previewModel: AppModel?
+    @State private var issue: String?
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Separate simulator preview").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                Spacer(minLength: 8)
+                Button("Done") { previewModel?.closeIsolatedPreview(); dismiss() }.font(.headline).frame(minHeight: 44)
+            }.padding(.horizontal, 22).background(Palette.canvas)
+            if let previewModel { NavigationStack { PlannerView(model: previewModel) } }
+            else if let issue { ContentUnavailableView("Preview unavailable", systemImage: "map", description: Text(issue)) }
+            else { ProgressView("Opening preview…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+        }.background(Palette.canvas)
+            .task {
+                guard previewModel == nil, issue == nil else { return }
+                do {
+                    guard route.isValid else { throw CocoaError(.coderInvalidValue) }
+                    let model = AppModel(journal: try LocalStore(inMemory: true))
+                    let path = route.walkRoute
+                    model.routes = [path]; model.selectedRoute = path.id
+                    model.startForCurrentEnvironment(path)
+                    previewModel = model
+                } catch { issue = "The saved route could not be previewed. Its original recording has not been changed." }
+            }
+            .onDisappear { previewModel?.closeIsolatedPreview() }
     }
 }

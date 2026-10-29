@@ -92,19 +92,7 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     MotionSettingsCard(model: model)
                     HealthActivityCard(health: model.health)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Optional Apple Health vitals").font(.subheadline.weight(.semibold))
-                            Spacer()
-                            if model.health.isReadingVitals { ProgressView() }
-                        }
-                        Text(model.health.summary).font(.caption).foregroundStyle(Palette.muted)
-                        if let record = model.health.heartRecord { vitalRecord("Heart rate", unit: "bpm", record: record) }
-                        if let record = model.health.respiratoryRecord { vitalRecord("Respiratory rate", unit: "breaths/min", record: record) }
-                        Button("Read recent health records") { Task { await model.health.readRecentVitals() } }
-                            .font(.caption.weight(.semibold)).frame(minHeight: 44)
-                            .disabled(model.health.isReadingVitals || model.health.isReadingActivity)
-                    }
+                    HealthVitalsCard(health: model.health)
                 }.padding(.top, 12)
             }.font(.headline).foregroundStyle(Palette.ink)
         }
@@ -122,11 +110,6 @@ struct ProfileView: View {
                 }.padding(.top, 8)
             }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
         }
-    }
-
-    private func vitalRecord(_ title: String, unit: String, record: HealthVitalRecord) -> some View {
-        LabeledContent(title, value: "\(record.value.formatted(.number.precision(.fractionLength(0)))) \(unit) · \(record.source)")
-            .font(.caption)
     }
 
     private func settingsIcon(_ symbol: String, tint: Color) -> some View {

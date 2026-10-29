@@ -51,7 +51,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     var headingDegrees: Double = 0
     var speedMetersPerSecond: Double = 0
     var altitudeMeters: Double = 0
-    var isSimulatingRun = false
+    private(set) var preview: WalkingPreviewPlayback?
+    private var simulationGeneration = 0
+    private var deviceLocation: CLLocation?
+    var isSimulatingRun: Bool { preview?.state == .playing }
+    var isPreviewLocation: Bool { preview != nil }
     var message = "Location is optional. You can search for a start point instead."
     var onUpdate: ((CLLocation) -> Void)?
 
@@ -102,45 +106,50 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.stopUpdatingHeading()
     }
 
-    /// Real-time GPS + heading stream along a route for testing live 3D running/walking navigation in Simulator or demo mode.
-    func startSimulatedRun(along coordinates: [CLLocationCoordinate2D], speedMps: Double = 2.8) {
-        stopSimulation()
-        guard coordinates.count > 1 else { return }
-        isSimulatingRun = true
-        let interpolated = Self.interpolate(coordinates: coordinates, stepMeters: speedMps)
+    /// Synthetic location is kept separate from the device location and resumes at the same point.
+    @discardableResult func prepareSimulation(along coordinates: [CLLocationCoordinate2D], speedMps: Double,
+                                              startingMetres: Double = 0, movingSeconds: Double = 0) -> Bool {
+        guard let player = try? WalkingPreviewPlayback(coordinates: coordinates.map(GeoCoordinate.init), speed: speedMps,
+                                                       startingMetres: startingMetres, movingSeconds: movingSeconds) else { return false }
+        stopSimulation(); preview = player; publishPreview(); return true
+    }
+    func resumeSimulation() {
+        guard preview != nil, preview?.state != .completed, !isSimulatingRun else { return }
+        simulationGeneration += 1; let ticket = simulationGeneration
+        preview?.play(); publishPreview()
         simulationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for index in 0..<interpolated.count {
-                if Task.isCancelled { break }
-                let coord = interpolated[index]
-                let nextCoord = interpolated[min(index + 1, interpolated.count - 1)]
-                let course = Self.bearing(from: coord, to: nextCoord)
-                self.headingDegrees = course
-                self.speedMetersPerSecond = speedMps
-                let simulated = CLLocation(
-                    coordinate: coord,
-                    altitude: 12.0,
-                    horizontalAccuracy: 4.0,
-                    verticalAccuracy: 4.0,
-                    course: course,
-                    speed: speedMps,
-                    timestamp: Date()
-                )
-                self.location = simulated
-                self.message = "Live navigation active"
-                self.onUpdate?(simulated)
-                do { try await Task.sleep(for: .seconds(1)) } catch { break }
+            var lastTick = Date()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                guard let self, self.simulationGeneration == ticket, self.isSimulatingRun else { return }
+                let now = Date(), elapsed = min(1.5, max(0, now.timeIntervalSince(lastTick)))
+                lastTick = now; self.preview?.advance(seconds: elapsed); self.publishPreview()
+                if self.preview?.state == .completed { return }
             }
-            self.isSimulatingRun = false
-            self.speedMetersPerSecond = 0
         }
     }
-
+    func pauseSimulation() {
+        simulationGeneration += 1; simulationTask?.cancel(); simulationTask = nil
+        preview?.pause(); speedMetersPerSecond = 0
+        message = preview?.state == .completed ? "Synthetic preview reached the destination." : "Synthetic preview paused."
+    }
     func stopSimulation() {
-        simulationTask?.cancel()
-        simulationTask = nil
-        isSimulatingRun = false
-        speedMetersPerSecond = 0
+        simulationGeneration += 1; simulationTask?.cancel(); simulationTask = nil
+        let wasPreview = preview != nil
+        preview = nil; speedMetersPerSecond = 0
+        if wasPreview { location = deviceLocation }
+    }
+    private func publishPreview() {
+        guard let preview else { return }
+        let coordinate = preview.coordinate.mapCoordinate
+        let speed = preview.state == .playing ? preview.speed : 0
+        headingDegrees = Self.bearing(from: coordinate, to: preview.nextCoordinate.mapCoordinate)
+        speedMetersPerSecond = speed
+        let fix = CLLocation(coordinate: coordinate, altitude: 0, horizontalAccuracy: 4, verticalAccuracy: -1,
+                             course: headingDegrees, speed: speed, timestamp: Date())
+        location = fix
+        message = preview.state == .completed ? "Synthetic preview reached the destination." : "Synthetic simulator location."
+        onUpdate?(fix)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -153,40 +162,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        guard !isSimulatingRun else { return }
+        guard !isPreviewLocation else { return }
         let heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
         if heading >= 0 { headingDegrees = heading }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard !isSimulatingRun, let latest = locations.last, latest.horizontalAccuracy >= 0,
+        guard let latest = locations.last, latest.horizontalAccuracy >= 0,
               latest.horizontalAccuracy <= 100, abs(latest.timestamp.timeIntervalSinceNow) < 30 else { return }
+        let previous = deviceLocation; deviceLocation = latest
+        guard !isPreviewLocation else { return }
         location = latest
-        if latest.speed >= 0 { speedMetersPerSecond = latest.speed }
+        if latest.speed.isFinite && latest.speed >= 0 { speedMetersPerSecond = latest.speed }
+        else if let previous {
+            speedMetersPerSecond = GPSWalkingSpeed.estimate(metres: latest.distance(from: previous),
+                seconds: latest.timestamp.timeIntervalSince(previous.timestamp), previousAccuracy: previous.horizontalAccuracy,
+                accuracy: latest.horizontalAccuracy) ?? 0
+        } else { speedMetersPerSecond = 0 }
         if latest.course >= 0 { headingDegrees = latest.course }
-        altitudeMeters = latest.altitude
-        message = "Location available"
-        onUpdate?(latest)
+        altitudeMeters = latest.altitude; message = "Location available"; onUpdate?(latest)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         message = error.localizedDescription
-    }
-
-    private static func interpolate(coordinates: [CLLocationCoordinate2D], stepMeters: Double) -> [CLLocationCoordinate2D] {
-        var result: [CLLocationCoordinate2D] = []
-        for i in 0..<(coordinates.count - 1) {
-            let a = coordinates[i], b = coordinates[i + 1]
-            let dist = CLLocation(latitude: a.latitude, longitude: a.longitude).distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
-            let steps = max(1, Int(ceil(dist / max(1.0, stepMeters))))
-            for s in 0..<steps {
-                let t = Double(s) / Double(steps)
-                result.append(CLLocationCoordinate2D(latitude: a.latitude + (b.latitude - a.latitude) * t,
-                                                     longitude: a.longitude + (b.longitude - a.longitude) * t))
-            }
-        }
-        if let last = coordinates.last { result.append(last) }
-        return result
     }
 
     static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {

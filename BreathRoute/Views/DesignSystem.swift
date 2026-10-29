@@ -207,4 +207,8 @@ struct RouteArtwork: View {
         }.accessibilityHidden(true)
     }
 }
-func doseText(_ value: Double?) -> String { value.map { String(format: "%.1f µg", $0) } ?? "Unavailable" }
+func doseText(_ value: Double?) -> String {
+    guard let value, value.isFinite, value >= 0 else { return "Unavailable" }
+    if value > 0 && value < 0.01 { return "<0.01 µg" }
+    return String(format: value > 0 && value < 1 ? "%.2f µg" : "%.1f µg", value)
+}

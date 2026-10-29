@@ -44,7 +44,7 @@ The Firebase plist remains a separate ignored local configuration. After replaci
 
 ## Validation
 
-`swift test` builds production domain and Core Data sources without a simulator. The current suite has **75 passing tests**, covering exposure and forecast calculations, routing decoding, Geoapify authentication/geometry/avoidance/cancellation, location gaps, geofence policy, activity aggregation, checkpoint validation and isolated persistence/failure handling. Core Data cases require macOS.
+`swift test` builds production domain and Core Data sources without a simulator. The current suite has **82 passing tests**, covering exposure and forecast calculations, routing decoding, Geoapify authentication/geometry/avoidance/cancellation, location gaps, geofence policy, activity aggregation, checkpoint validation and isolated persistence/failure handling. Core Data cases require macOS.
 
 On 29 October 2026, the restored source passed:
 
@@ -58,6 +58,18 @@ On 29 October 2026, the restored source passed:
 The live restore used a separate local store, not a second-device Google login. No iPad sign-in was initiated. The new Explore layout and build-level provider configuration were preserved.
 
 Build verification uses local simulator signing (`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`). Tests do not establish live sensor delivery, background execution, provider accuracy or all accessibility interactions. Simulator usability checks and provider responses are checked separately.
+
+## Movement and health readings in Simulator
+
+The Simulator does not walk automatically or measure a person's pulse. In **Explore → More walking tools → Try a moving example**, a labelled example starts moving immediately. Alternatively, compare a real provider route and tap **Start simulator preview**. That reuses its path and air samples while labelling movement/body metrics as synthetic. On a physical iPhone, **Start this walk** continues to use real GPS and optional Core Motion instead.
+
+If an unfinished walk is present, **Preview this saved route** opens the same path in a separate in-memory preview; closing it preserves the original checkpoint and does not save a new trip.
+
+Preview pace, speed, distance and example steps update as the marker advances. Provider-route previews request a fresh OpenWeather reading for the simulated position; **Refresh live air data** retries it. Exposure combines provider concentration with simulated time, and air-data coverage keeps missing intervals explicit. Bundled example routes keep their air readings synthetic. Fictional heart/breathing values are explicitly marked as examples, never inserted into HealthKit. **Pause/Resume** preserves progress; backgrounding pauses playback. **Follow the walker** is off initially so the marker visibly moves on the map; turn it on to keep the marker centred. Ending a preview saves a labelled demo, excluded from actual-walk totals.
+
+**You → Health & motion sensors** and actual-walk activity show explicit availability for Apple Health records. Use **Refresh** for today's available HealthKit steps/distance and **Read Apple Health records** for recent heart/breathing snapshots. Missing data remains **Unavailable**. Permission does not generate sensor data, and an iPhone alone does not measure heart or breathing rate. Real readings still depend on a compatible source and permission.
+
+Seven domain tests cover path advancement, exact arrival, pause/resume, recovered progress, invalid inputs, repeated vertices, date-line interpolation and GPS pace fallback. The Debug `--walking-preview-qa` workflow additionally checks movement/metrics, background pause and synthetic-data isolation using an in-memory journal, including successful and failed air requests through a mock provider; it does not query or write HealthKit. The final build passed 16 native checks, and a live OpenWeather response was separately verified on the saved-route preview.
 
 ## Cloud sync and local verification
 

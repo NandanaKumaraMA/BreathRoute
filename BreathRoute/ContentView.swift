@@ -34,6 +34,7 @@ struct ContentView: View {
             model.startAccountObservation()
             #if DEBUG
             Task { await CloudJournalQA.runIfRequested(model: model) }
+            Task { await WalkingPreviewQA.runIfRequested() }
             Task { await LiveJournalQA.runIfRequested(model: model) }
             Task { await StructuredCloudQA.runIfRequested(model: model) }
             #endif

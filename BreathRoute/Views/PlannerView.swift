@@ -34,6 +34,7 @@ struct PlannerView: View {
     @State private var showDepartureForecast = false
     @State private var showFullMapRouteDetails = false
     @State private var showNearbyWhenRouted = false
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -55,17 +56,24 @@ struct PlannerView: View {
                     }
                     if model.demo {
                         HStack {
-                            Label("Example routes and air data", systemImage: "sparkles").font(.caption).foregroundStyle(Palette.muted)
+                            Label(model.previewSourceLabel, systemImage: "sparkles").font(.caption).foregroundStyle(Palette.muted)
                             Spacer()
                             if model.activeRoute == nil { Button("Exit example") { model.leaveDemo() }.font(.caption.weight(.semibold)).frame(minHeight: 44) }
                         }
                     }
                     routeMap(height: typeSize.isAccessibilitySize ? 300 : (geometry.size.width >= 800 ? 420 : 310))
                         .id("route-map")
-                    if !model.routes.isEmpty || model.activeRoute != nil {
+                    if let route = model.activeRoute {
+                        if route.demo { previewControls }
+                        routeOptions
+                        DisclosureGroup("Air samples and route details") {
+                            VStack(alignment: .leading, spacing: 14) { mapStatusStrip; coverageBanner }.padding(.top, 12)
+                        }.font(.subheadline.weight(.semibold))
+                    } else if !model.routes.isEmpty {
                         mapStatusStrip
                         coverageBanner
                         routeOptions
+                        if AppModel.usesSimulator { InfoNote(symbol: "play.circle", text: "Start simulator preview follows this path with synthetic movement and body metrics. Route and air data keep their provider labels.") }
                     } else {
                         nearbySection
                     }
@@ -163,6 +171,11 @@ struct PlannerView: View {
             }
         }
         .task {
+            if let route = model.activeRoute, let coordinate = model.location.location?.coordinate ?? route.coordinates.first {
+                followRunnerCamera(at: coordinate)
+                return
+            }
+            if !model.routes.isEmpty { focusRoutes() }
             if model.location.hasAuthorization { model.location.request() }
             if discovery.centre == nil {
                 if start == nil && model.location.currentLocation != nil { origin = .current }
@@ -190,18 +203,7 @@ struct PlannerView: View {
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 6) {
                     if searchMovedArea && model.activeRoute == nil { searchAreaButton }
-                    if model.activeRoute?.demo == true {
-                        Button {
-                            model.toggleSimulatedRun()
-                        } label: {
-                            Label(model.location.isSimulatingRun ? "Pause example movement" : "Play example movement",
-                                  systemImage: model.location.isSimulatingRun ? "pause.circle.fill" : "figure.run.circle.fill")
-                                .font(.caption.weight(.bold))
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                                .foregroundStyle(Palette.lime)
-                                .background(Palette.deep, in: Capsule())
-                        }.buttonStyle(PressStyle())
-                    } else if !typeSize.isAccessibilitySize {
+                    if !typeSize.isAccessibilitySize {
                         Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "path" : "paths")")
                             .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 8).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
                     }
@@ -219,7 +221,7 @@ struct PlannerView: View {
                 .frame(width: 38, height: 38)
                 .background(Palette.deep, in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.activeRoute?.source == "Apple Maps" ? (model.nextRouteStep?.instructions ?? "Follow your selected path") : "Follow your selected path")
+                Text(model.activeRoute?.demo == true ? "Synthetic walk preview" : (model.activeRoute?.source == "Apple Maps" ? (model.nextRouteStep?.instructions ?? "Follow your selected path") : "Follow your selected path"))
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink).lineLimit(1)
                 Text("\(Int(model.remainingDistanceMetres)) m remaining · \(model.livePaceLabel)")
                     .font(.caption2.weight(.medium)).foregroundStyle(Palette.muted).monospacedDigit()
@@ -247,9 +249,9 @@ struct PlannerView: View {
     private var flowHeader: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(model.activeRoute == nil ? "Plan a walk" : "Your walk")
+                Text(model.activeRoute == nil ? "Plan a walk" : (model.activeRoute?.demo == true ? "Walk preview" : "Your walk"))
                     .font(.system(.title, design: .serif)).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
-                Text(model.activeRoute == nil ? "Choose a destination, then compare routes." : "Follow your selected path. Keep the app open to record.")
+                Text(model.activeRoute == nil ? "Choose a destination, then compare routes." : (model.activeRoute?.demo == true ? "Synthetic movement and body metrics for demonstration." : "Follow your selected path. Keep the app open to record."))
                     .font(.subheadline).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -258,7 +260,10 @@ struct PlannerView: View {
                 Button("Geofencing and awareness", systemImage: "location.circle") { walkTool = .geofencing }
                 Button("Rerouting tools", systemImage: "arrow.triangle.branch") { walkTool = .rerouting }
                 if model.activeRoute == nil {
-                    Button("Try an example", systemImage: "sparkles") { model.loadDemo(); focusRoutes() }
+                    Button("Try a moving example", systemImage: "play.circle") {
+                        model.loadDemo()
+                        if let route = model.selected { model.startForCurrentEnvironment(route) }
+                    }
                 }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 44)
@@ -371,7 +376,7 @@ struct PlannerView: View {
     @ViewBuilder private var routeOptions: some View {
         if let route = model.activeRoute {
             activeCard(route)
-            ActiveMotionCard(model: model, demo: route.demo)
+            if !route.demo { ActiveMotionCard(model: model, demo: false) }
             if !route.demo {
                 Button { walkTool = .rerouting } label: { Label("Compare the remaining walk", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
             }
@@ -408,22 +413,58 @@ struct PlannerView: View {
         }
     }
 
+    private var previewControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                StatusPill(title: "Simulator · synthetic activity", symbol: "testtube.2")
+                Spacer(minLength: 4)
+                Button(model.location.isSimulatingRun ? "Pause" : "Resume", systemImage: model.location.isSimulatingRun ? "pause.fill" : "play.fill") { model.toggleSimulatedRun() }
+                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    .disabled(model.location.preview?.state == .completed)
+                    .accessibilityLabel(model.location.isSimulatingRun ? "Pause simulator preview" : "Resume simulator preview")
+            }
+            Toggle("Follow the walker", isOn: $model.followCamera).font(.subheadline).tint(Palette.forest)
+            if let preview = model.location.preview {
+                ProgressView(value: preview.metres, total: preview.totalMetres).tint(Palette.forest)
+                    .accessibilityLabel("Simulated path progress")
+                Text(preview.state == .completed ? "Destination reached. Finish to save a labelled example." : "The marker follows the path. Turn off camera follow to watch it move across the map.")
+                    .font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private func activeCard(_ route: WalkRoute) -> some View {
         Surface {
-            HStack {
-                SectionHeading(title: model.isRunningLive ? "Live run telemetry" : "Live walk telemetry")
-                Spacer()
-                StatusPill(title: "Live GPS", symbol: route.isCleanAirPath ? "leaf.fill" : "location.north.line.fill")
-            }
+            SectionHeading(title: route.demo ? "Example activity" : "Your walk", detail: route.demo ? "Synthetic" : "GPS")
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], spacing: 14) {
-                    Metric(title: "Elapsed", value: "\(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date) / 60))m \(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date)) % 60)s")
-                    Metric(title: "Live pace", value: model.livePaceLabel)
+                let elapsed = route.demo ? (model.location.preview?.movingSeconds ?? 0) : context.date.timeIntervalSince(model.walkStarted ?? context.date)
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible(), alignment: .leading)] : [GridItem(.adaptive(minimum: 120), alignment: .leading)], spacing: 18) {
+                    Metric(title: route.demo ? "Preview time" : "Elapsed", value: "\(Int(elapsed) / 60)m \(Int(elapsed) % 60)s")
+                    Metric(title: "Pace", value: model.livePaceLabel)
                     Metric(title: "Speed", value: String(format: "%.1f km/h", model.liveSpeedKmh))
                     Metric(title: "Covered", value: String(format: "%.0f m", model.trackedMetres))
                     Metric(title: "Remaining", value: String(format: "%.0f m", model.remainingDistanceMetres))
                     Metric(title: "Est. PM2.5 dose", value: doseText(model.activeEstimate.observedDose))
+                    Metric(title: "Air-data coverage", value: "\(Int(model.activeEstimate.coverage * 100))%")
                 }
+            }
+            if route.demo, route.source != "Illustrative demo" {
+                if let message = model.previewAirMessage { InfoNote(symbol: "aqi.medium", text: message) }
+                Button(model.isRefreshingPreviewAir ? "Refreshing air data…" : "Refresh live air data", systemImage: "arrow.clockwise") {
+                    Task { await model.refreshPreviewAir() }
+                }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.isRefreshingPreviewAir)
+            }
+            if route.demo, let values = model.location.preview?.exampleMetrics {
+                Divider()
+                Text("Fictional body metrics · not Apple Health readings").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible(), alignment: .leading)] : [GridItem(.adaptive(minimum: 120), alignment: .leading)], spacing: 18) {
+                    Metric(title: "Example steps", value: "\(values.steps)")
+                    Metric(title: "Example heart rate", value: "\(values.heartRate) bpm")
+                    Metric(title: "Example breathing rate", value: "\(values.respiratoryRate)/min")
+                }
+            } else if !route.demo {
+                Divider()
+                HealthVitalsCard(health: model.health)
             }
             InfoNote(text: model.trackingMessage)
             if let message = model.checkpointMessage { InfoNote(symbol: "exclamationmark.triangle", text: message) }
@@ -433,11 +474,12 @@ struct PlannerView: View {
     @ViewBuilder private var walkAction: some View {
         if model.activeRoute != nil || model.selected != nil {
             (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
-                PrimaryButton(title: model.activeRoute != nil ? "Finish walk" : (model.demo ? "Start example walk" : "Start this walk"),
+                PrimaryButton(title: model.activeRoute != nil ? (model.isIsolatedPreview ? "Close preview" : "Finish walk") : (AppModel.usesSimulator ? "Start simulator preview" : (model.demo ? "Start example walk" : "Start this walk")),
                               symbol: model.activeRoute != nil ? "checkmark" : (model.intensity == .fast ? "figure.run" : "location.north.line.fill")) {
-                    if model.activeRoute != nil { confirmFinish = true }
+                    if model.activeRoute != nil && model.isIsolatedPreview { model.closeIsolatedPreview(); dismiss() }
+                    else if model.activeRoute != nil { confirmFinish = true }
                     else if let route = model.selected {
-                        model.start(route)
+                        model.startForCurrentEnvironment(route)
                         if let first = route.coordinates.first { followRunnerCamera(at: first) }
                     }
                 }
@@ -465,9 +507,9 @@ struct PlannerView: View {
     private func followRunnerCamera(at coordinate: CLLocationCoordinate2D) {
         let cam = MapCamera(
             centerCoordinate: coordinate,
-            distance: model.isRunningLive ? 380 : 460,
-            heading: model.location.headingDegrees,
-            pitch: model.pitch3D ? 55 : 0
+            distance: model.activeRoute?.demo == true ? 180 : (model.isRunningLive ? 380 : 460),
+            heading: model.activeRoute?.demo == true ? 0 : model.location.headingDegrees,
+            pitch: model.activeRoute?.demo == true ? 0 : (model.pitch3D ? 55 : 0)
         )
         withAnimation(reduceMotion ? nil : .linear(duration: 0.8)) {
             camera = .camera(cam)

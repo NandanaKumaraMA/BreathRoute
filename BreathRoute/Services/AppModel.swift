@@ -44,8 +44,18 @@ final class AppModel {
     private var remainingTask: Task<Void, Never>?
     private var plannedStart: CLLocationCoordinate2D?
     private var plannedDestination: MKMapItem?
+    typealias PreviewAirRequest = @MainActor (CLLocationCoordinate2D) async throws -> AirReading
+    private let previewAirRequest: PreviewAirRequest
+    private(set) var previewAirMessage: String?
+    var isRefreshingPreviewAir: Bool { refreshing }
+    private let journalOverride: LocalStore?
     private var repository: LocalStore?
     var persistenceAvailable: Bool { repository != nil }
+    var isIsolatedPreview: Bool { journalOverride != nil }
+    func closeIsolatedPreview() {
+        guard isIsolatedPreview, activeRoute?.demo == true else { return }
+        stopRecording()
+    }
     var activeRoute: WalkRoute?
     var walkStarted: Date?
     private var recorder = WalkRecorder()
@@ -77,30 +87,49 @@ final class AppModel {
 
     /// Live running/walking speed in km/h from Core Location or Core Motion pace.
     var liveSpeedKmh: Double {
-        if location.speedMetersPerSecond > 0.2 {
+        if location.isPreviewLocation && !location.isSimulatingRun { return 0 }
+        if location.currentLocation != nil, location.speedMetersPerSecond > 0.2 {
             return location.speedMetersPerSecond * 3.6
         }
-        if let pace = motion.currentPace, pace > 0 {
+        if activeRoute?.demo != true, let pace = motion.currentPace, pace > 0 {
             return 60.0 / pace
         }
         return 0
     }
 
-    /// Formatted live pace (min/km) for the real-time running/walking HUD.
+    /// Pace comes from fresh phone motion or a recent GPS speed; previews have an explicit source.
     var livePaceLabel: String {
-        if let pace = motion.currentPace, pace > 0, pace < 35 {
-            let mins = Int(pace)
-            let secs = Int((pace - Double(mins)) * 60)
-            return String(format: "%d'%02d\"/km", mins, secs)
+        if activeRoute?.demo == true, !location.isSimulatingRun {
+            return location.preview?.state == .completed ? "Completed" : "Paused"
         }
-        let speed = location.speedMetersPerSecond
-        if speed > 0.3 {
-            let paceMinPerKm = (1000.0 / speed) / 60.0
-            let mins = Int(paceMinPerKm)
-            let secs = Int((paceMinPerKm - Double(mins)) * 60)
-            return String(format: "%d'%02d\"/km", mins, secs)
-        }
-        return "—/km"
+        var minutes: Double?
+        if activeRoute?.demo != true, let pace = motion.currentPace, pace > 0, pace < 60 { minutes = pace }
+        else if liveSpeedKmh > 0.3 { minutes = 60 / liveSpeedKmh }
+        guard let minutes else { return location.currentLocation == nil ? "Waiting for GPS" : "Stationary" }
+        let seconds = Int((minutes * 60).rounded())
+        return String(format: "%d:%02d min/km", seconds / 60, seconds % 60)
+    }
+    static var usesSimulator: Bool {
+        #if targetEnvironment(simulator)
+        true
+        #else
+        false
+        #endif
+    }
+    var previewSpeed: Double { switch intensity { case .easy: 1.35; case .brisk: 1.7; case .fast: 2.7 } }
+    var previewSourceLabel: String {
+        (activeRoute ?? selected)?.source == "Illustrative demo" ? "Example route, air and activity" : "Provider route · simulated activity"
+    }
+    /// Actual route/air data retain their provider; only movement and body values become examples.
+    func startForCurrentEnvironment(_ route: WalkRoute) {
+        if Self.usesSimulator || route.demo {
+            var previewRoute = WalkRoute(name: route.name, coordinates: route.coordinates, metres: route.metres,
+                seconds: route.seconds, estimate: route.estimate, demo: true, airSamples: route.airSamples,
+                source: route.source, avoidedAreaCount: route.avoidedAreaCount, excludedAreas: route.excludedAreas, steps: route.steps)
+            // A new route ID ensures the active map and its selected route refer to the same preview.
+            if route.demo { previewRoute = route }
+            start(previewRoute)
+        } else { start(route) }
     }
 
     /// True when the user's live speed or motion state indicates running/jogging.
@@ -111,6 +140,7 @@ final class AppModel {
     /// Remaining distance in metres along the active route.
     var remainingDistanceMetres: Double {
         guard let route = activeRoute else { return 0 }
+        if route.demo, let preview = location.preview { return max(0, preview.totalMetres - preview.metres) }
         if let current = location.currentLocation ?? location.location, let end = route.coordinates.last {
             let direct = current.distance(from: CLLocation(latitude: end.latitude, longitude: end.longitude))
             return max(0, min(route.metres, max(direct, route.metres - trackedMetres)))
@@ -129,7 +159,10 @@ final class AppModel {
         }
     }
 
-    init() {
+    init(journal: LocalStore? = nil, previewAirRequest: @escaping PreviewAirRequest = { coordinate in
+        try await AirService().fetch(at: coordinate, key: KeyStore.read("openweather"))
+    }) {
+        journalOverride = journal; self.previewAirRequest = previewAirRequest
         name = UserDefaults.standard.string(forKey: "displayName") ?? ""
         intensity = WalkingIntensity(rawValue: UserDefaults.standard.string(forKey: "intensity") ?? "") ?? .easy
         extraMinutes = UserDefaults.standard.object(forKey: "extraMinutes") as? Double ?? 10
@@ -164,7 +197,7 @@ final class AppModel {
     }
     private func openJournal(accountNamespace: String?) {
         journalReadableForSync = false; cloudState = JournalCloudState()
-        do { repository = try LocalStore(accountNamespace: accountNamespace) }
+        do { repository = try journalOverride ?? LocalStore(accountNamespace: accountNamespace) }
         catch { self.error = "This journal could not be opened. Existing data has not been reset."; return }
         guard let repository else { return }
         var readable = true
@@ -313,27 +346,55 @@ final class AppModel {
         do { try repository.save(initial, id: ActiveWalkCheckpoint.storageID, kind: "active-walk") }
         catch { self.error = "The walk could not start because its recovery record could not be saved."; return }
         remainingOptions = []; geofences.stop()
-        activeRoute = route; walkStarted = now; recorder = WalkRecorder(); lastRefresh = nil
+        activeRoute = route; air = nil; previewAirMessage = nil
+        if route.demo { routes = [route]; selectedRoute = route.id; demo = true; followCamera = false }
+        else { followCamera = true }
+        walkStarted = now; recorder = WalkRecorder(); lastRefresh = nil
         sessionID = id; sessionVentilation = intensity.ventilation; recoveredSession = false
         lastCheckpoint = now; checkpointMessage = nil; startCheckpointTimer()
         location.setNavigationMode(true)
-        trackingMessage = route.demo ? "Demo session: tap Simulate live run on map to preview real-time 3D tracking." : "Live GPS & heading active. Following clean-air corridor."
+        trackingMessage = route.demo ? "Synthetic simulator walk. Body metrics are fictional; no HealthKit samples are created." : "Waiting for movement. Keep the app open to record GPS."
         if !route.demo {
             motion.beginSession(at: walkStarted!, enabled: motionTrackingEnabled, foreground: foreground)
             location.request()
-        } else { motion.endSession() }
+        } else {
+            motion.endSession()
+            if location.prepareSimulation(along: route.coordinates, speedMps: previewSpeed) {
+                location.resumeSimulation()
+                if route.source != "Illustrative demo" { Task { await refreshPreviewAir() } }
+            }
+            else { error = "This path could not be prepared for a simulator preview." }
+        }
+    }
+    /// Provider air data can be requested for the synthetic position; body values stay fictional.
+    func refreshPreviewAir() async {
+        guard let route = activeRoute, route.demo, route.source != "Illustrative demo", !refreshing,
+              let coordinate = location.location?.coordinate else { return }
+        let ticket = sessionID
+        refreshing = true; previewAirMessage = "Loading OpenWeather data for the preview position…"
+        defer { if sessionID == ticket { refreshing = false } }
+        do {
+            let reading = try await previewAirRequest(coordinate)
+            guard sessionID == ticket, activeRoute?.demo == true else { return }
+            guard !reading.demo, reading.isFresh, reading.pm25.isFinite, reading.pm25 >= 0, (1...5).contains(reading.aqi) else { throw ServiceError.noReading }
+            air = reading
+            previewAirMessage = "OpenWeather · PM2.5 \(reading.pm25.formatted(.number.precision(.fractionLength(1)))) µg/m³ · updated \(reading.date.formatted(.dateTime.hour().minute())). Exposure combines this provider reading with simulated movement."
+        } catch {
+            guard sessionID == ticket else { return }
+            if air?.isFresh != true { air = nil }
+            previewAirMessage = "Fresh air data could not be loaded. Missing intervals remain unknown; tap Refresh live air data to retry."
+        }
     }
     func toggleSimulatedRun() {
-        guard let route = activeRoute else { return }
+        guard let route = activeRoute, route.demo else { return }
         if location.isSimulatingRun {
-            location.stopSimulation()
-            trackingMessage = "Live simulation paused."
+            location.pauseSimulation(); recorder.breakPath(); trackingMessage = "Synthetic preview paused. Resume continues from this position."
         } else {
-            if air == nil {
-                air = route.airSamples.first?.reading ?? AirReading(pm25: 10.5, aqi: 1, date: Date(), demo: route.demo)
+            if location.preview == nil {
+                _ = location.prepareSimulation(along: route.coordinates, speedMps: previewSpeed,
+                                               startingMetres: trackedMetres, movingSeconds: trackedSeconds)
             }
-            location.startSimulatedRun(along: route.coordinates, speedMps: intensity == .fast ? 3.2 : (intensity == .brisk ? 2.4 : 1.6))
-            trackingMessage = "Live real-time running/walking navigation active along \(route.name)."
+            location.resumeSimulation(); trackingMessage = "Synthetic preview playing. No real sensor or HealthKit measurements."
         }
     }
     func setMotionTracking(_ enabled: Bool) {
@@ -344,15 +405,24 @@ final class AppModel {
     func setForeground(_ active: Bool) {
         foreground = active
         motion.setForeground(active)
-        if !active { recorder.breakPath() }
+        if !active {
+            recorder.breakPath()
+            if activeRoute?.demo == true { location.pauseSimulation() }
+        }
         if active && activeRoute?.demo == false { trackingMessage = "Tracking resumed. Any background gap is excluded." }
         checkpoint()
     }
     private func recordLocation(_ current: CLLocation) {
-        guard foreground, let route = activeRoute, (!route.demo || location.isSimulatingRun), let started = walkStarted, current.timestamp >= started, current.timestamp <= Date().addingTimeInterval(2) else { return }
+        guard foreground, let route = activeRoute, (!route.demo || location.isPreviewLocation), let started = walkStarted, current.timestamp >= started, current.timestamp <= Date().addingTimeInterval(2) else { return }
         let distance = recorder.previous.map { current.distance(from: CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)) }
-        let samplePM = route.airSamples.first?.reading?.pm25
-        let pm = (air?.isFresh == true ? air?.pm25 : nil) ?? (location.isSimulatingRun ? samplePM : nil)
+        if route.demo, route.source == "Illustrative demo" || air?.isFresh != true {
+            let nearest = route.airSamples.min {
+                current.distance(from: CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)) <
+                current.distance(from: CLLocation(latitude: $1.coordinate.latitude, longitude: $1.coordinate.longitude))
+            }?.reading
+            air = route.source == "Illustrative demo" || nearest?.demo == false ? nearest : nil
+        }
+        let pm = air?.isFresh == true ? air?.pm25 : nil
         let result = recorder.record(coordinate: GeoCoordinate(current.coordinate), date: current.timestamp,
                                      accuracy: current.horizontalAccuracy, metresFromPrevious: distance, pm25: pm)
         switch result {
@@ -361,6 +431,7 @@ final class AppModel {
         case .started: trackingMessage = "Recording live GPS path. Unobserved gaps remain excluded."
         case .ignored: return
         }
+        if route.demo { trackingMessage = "Synthetic movement and body metrics. Route provider: \(route.source)." }
         if !route.demo { checkpoint() }
         if !route.demo && !refreshing && (lastRefresh == nil || Date().timeIntervalSince(lastRefresh!) > 60) {
             refreshing = true; lastRefresh = Date()
@@ -404,6 +475,7 @@ final class AppModel {
         location.setNavigationMode(true)
         trackingMessage = route.demo ? "Recovered demo: no actual movement or exposure was recorded." : "Walk recovered. Recorded portions are retained; the closed-app gap remains unobserved."
         if !route.demo { motion.beginSession(at: draft.startedAt, enabled: motionTrackingEnabled, foreground: foreground, restoring: draft.activity, checkpointedAt: draft.savedAt); location.request() }
+        else { _ = location.prepareSimulation(along: route.coordinates, speedMps: previewSpeed, startingMetres: trackedMetres, movingSeconds: trackedSeconds) }
         startCheckpointTimer(); checkpoint(); section = .routes
     }
     func saveRecoveryPortion() {
@@ -441,7 +513,7 @@ final class AppModel {
         checkpointTimer?.invalidate(); checkpointTimer = nil
         activeRoute = nil; walkStarted = nil; sessionID = nil; sessionVentilation = nil
         location.setNavigationMode(false); location.stop(); motion.endSession(); voice.stop(); geofences.stop(); remainingTask?.cancel(); remainingOptions = []
-        checkpointMessage = nil; lastCheckpoint = nil; recorder = WalkRecorder(); air = nil
+        checkpointMessage = nil; lastCheckpoint = nil; recorder = WalkRecorder(); air = nil; refreshing = false; previewAirMessage = nil
     }
     var selected: WalkRoute? { routes.first { $0.id == selectedRoute } }
     var bestRouteID: UUID? {

@@ -99,14 +99,11 @@ struct HealthActivityCard: View {
                 Button(health.isReadingActivity ? "Reading…" : "Refresh") { Task { await health.readToday() } }
                     .font(.caption.weight(.semibold)).disabled(health.isReadingActivity || health.isReadingVitals)
             }
-            if let activity = health.dailyActivity {
-                HStack(spacing: 16) {
-                    Metric(title: "Steps", value: activity.steps.map { $0.formatted(.number.precision(.fractionLength(0))) } ?? "Unavailable")
-                    Metric(title: "Walk + run", value: activity.walkingRunningMetres.map { String(format: "%.2f km", $0 / 1000) } ?? "Unavailable")
-                }
-            } else {
-                Text(health.activityMessage).font(.caption).foregroundStyle(Palette.muted)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], spacing: 16) {
+                Metric(title: "Steps", value: health.dailyActivity?.steps.map { $0.formatted(.number.precision(.fractionLength(0))) } ?? "Unavailable")
+                Metric(title: "Walk + run", value: health.dailyActivity?.walkingRunningMetres.map { String(format: "%.2f km", $0 / 1000) } ?? "Unavailable")
             }
+            Text(health.activityMessage).font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -144,6 +141,35 @@ struct MotionPreviewView: View {
                 }
             }.navigationTitle("Motion preview").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+
+/// Read-only HealthKit snapshots. Missing values stay visible instead of silently disappearing.
+struct HealthVitalsCard: View {
+    @Bindable var health: HealthService
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Apple Health records").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+            vital("Heart rate", unit: "bpm", record: health.heartRecord)
+            vital("Breathing rate", unit: "breaths/min", record: health.respiratoryRecord)
+            Text(health.summary).font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            Button(health.isReadingVitals ? "Reading Apple Health…" : "Read Apple Health records") { Task { await health.readRecentVitals() } }
+                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                .disabled(health.isReadingVitals || health.isReadingActivity)
+            Text("An iPhone does not measure heart or breathing rate by itself. Available records need a compatible source; permission alone does not create readings.")
+                .font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func vital(_ title: String, unit: String, record: HealthVitalRecord?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(title, value: record.map { "\($0.value.formatted(.number.precision(.fractionLength(0)))) \(unit)" } ?? "Unavailable")
+                .font(.subheadline).foregroundStyle(Palette.ink)
+            if let record {
+                Text("\(record.source) · \(record.date.formatted(date: .abbreviated, time: .shortened))\(record.manuallyEntered ? " · Manually entered" : "")")
+                    .font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

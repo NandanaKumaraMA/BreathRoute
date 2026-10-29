@@ -34,7 +34,7 @@ struct ExploreMapView: View {
 
     var body: some View {
         Map(position: $camera, scope: mapScope) {
-            UserAnnotation()
+            if model.activeRoute == nil { UserAnnotation() }
             if showAir {
                 if model.routes.isEmpty && model.activeRoute == nil && !model.demo {
                     ForEach(discovery.places.filter { discovery.airByPlace[$0.id] != nil }) { place in
@@ -52,9 +52,9 @@ struct ExploreMapView: View {
                     style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [7, 5])
                 )
             }
-            if model.activeRoute != nil, let liveLocation = model.location.location ?? model.recordedPath.last.map({ CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }) {
-                Annotation("Live Runner", coordinate: liveLocation.coordinate) {
-                    LiveRunnerPuck(heading: model.location.headingDegrees, isRunning: model.isRunningLive, speedKmh: model.liveSpeedKmh)
+            if let active = model.activeRoute, let liveLocation = model.location.location ?? model.recordedPath.last.map({ CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }) {
+                Annotation(active.demo ? "Synthetic preview walker" : "Your location", coordinate: liveLocation.coordinate) {
+                    LiveRunnerPuck(heading: model.location.headingDegrees, isRunning: model.isRunningLive, speedKmh: model.liveSpeedKmh, preview: active.demo)
                 }.annotationTitles(.hidden)
             }
             if model.activeRoute == nil && model.routes.isEmpty && !model.demo {
@@ -69,7 +69,7 @@ struct ExploreMapView: View {
                     }.annotationTitles(.hidden)
                 }
             }
-            if let first = model.selected?.coordinates.first {
+            if model.activeRoute == nil, let first = model.selected?.coordinates.first {
                 Annotation("Start", coordinate: first) {
                     Image(systemName: "figure.walk").font(.subheadline.bold()).foregroundStyle(Palette.deep)
                         .frame(width: 34, height: 34).background(.white, in: Circle())
@@ -105,7 +105,7 @@ struct ExploreMapView: View {
                         model.followCamera.toggle()
                     } label: {
                         toolIcon(model.followCamera ? "location.north.line.fill" : "location.slash")
-                    }.accessibilityLabel(model.followCamera ? "3D camera follow active" : "Enable 3D camera follow")
+                    }.accessibilityLabel(model.followCamera ? "Stop following the walker" : "Follow the walker")
                 }
                 Button(action: useLocation) { toolIcon("location.fill") }.accessibilityLabel("Recenter on my current location")
                 Button(action: expand) { toolIcon(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }.accessibilityLabel(expanded ? "Close full-screen map" : "Expand map")
@@ -135,6 +135,7 @@ struct LiveRunnerPuck: View {
     let heading: Double
     let isRunning: Bool
     let speedKmh: Double
+    var preview = false
 
     var body: some View {
         VStack(spacing: 3) {
@@ -160,7 +161,7 @@ struct LiveRunnerPuck: View {
                     .foregroundStyle(Palette.lime)
             }
         }
-        .accessibilityLabel(isRunning ? "Live runner position" : "Live walker position")
+        .accessibilityLabel(preview ? "Synthetic preview walker position" : (isRunning ? "Runner position" : "Walker position"))
     }
 }
 
