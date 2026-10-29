@@ -12,6 +12,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B6A0F1000000000000000040 /* AppConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppConfig.xcconfig; sourceTree = "<group>"; };
 		A24B7EBE3076093D00EC45AF /* BreathRoute.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BreathRoute.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -52,6 +53,7 @@
 		A24B7EB53076093D00EC45AF = {
 			isa = PBXGroup;
 			children = (
+				B6A0F1000000000000000040 /* AppConfig.xcconfig */,
 				A24B7EC03076093D00EC45AF /* BreathRoute */,
 				A24B7EBF3076093D00EC45AF /* Products */,
 			);
@@ -271,6 +273,7 @@
 		};
 		A24B7ECA3076093D00EC45AF /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B6A0F1000000000000000040 /* AppConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -310,6 +313,7 @@
 		};
 		A24B7ECB3076093D00EC45AF /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B6A0F1000000000000000040 /* AppConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

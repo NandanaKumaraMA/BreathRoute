@@ -19,7 +19,7 @@ struct PlannerView: View {
     @State private var expandedMap = false
     @State private var mapStyle: ExploreMapStyle = .streets
     @State private var elevated = false
-    @State private var showAir = true
+    @State private var showAir = false
     @State private var searchMovedArea = false
     @State private var waitingForLocation = false
     @State private var nearbyTask: Task<Void, Never>?
@@ -29,6 +29,7 @@ struct PlannerView: View {
     @State private var routeTask: Task<Void, Never>?
     @State private var walkTool: WalkTool?
     @State private var toolAction: ToolAction?
+    @State private var previewRequest = UUID()
     @State private var showRouteDetails = false
     @State private var showDepartureForecast = false
     @State private var showFullMapRouteDetails = false
@@ -41,41 +42,49 @@ struct PlannerView: View {
     enum ToolAction { case configure, plan }
 
     var body: some View {
-        GeometryReader { geometry in
-            Page {
-                PageHeader(title: model.activeRoute == nil ? "Explore routes." : "Enjoy your walk.",
-                           subtitle: model.activeRoute == nil ? "Plan & compare" : "Walk in progress",
-                           symbol: "point.topleft.down.to.point.bottomright.curvepath")
-                RecoveryCard(model: model)
-                WalkToolsLauncher(model: model) { walkTool = $0 }
-                if model.demo {
-                    HStack(spacing: 10) {
-                        StatusPill(title: "Demo", symbol: "sparkles")
-                        Text("Illustrative routes & air data").font(.caption).foregroundStyle(Palette.muted)
-                        Spacer()
-                        if model.activeRoute == nil { Button("Exit") { model.leaveDemo() }.font(.caption.weight(.semibold)).frame(minHeight: 44) }
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                Page {
+                    flowHeader
+                    RecoveryCard(model: model)
+                    if model.activeRoute == nil {
+                        Surface(padding: 16) {
+                            journeyFields
+                            planningControls
+                        }.id("journey")
                     }
-                }
-                if geometry.size.width >= 800 {
-                    HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 14) { routeMap(height: 580); mapStatusStrip; coverageBanner }
-                        VStack(alignment: .leading, spacing: 18) { planningControls; routeOptions }.frame(width: 340)
+                    if model.demo {
+                        HStack {
+                            Label("Example routes and air data", systemImage: "sparkles").font(.caption).foregroundStyle(Palette.muted)
+                            Spacer()
+                            if model.activeRoute == nil { Button("Exit example") { model.leaveDemo() }.font(.caption.weight(.semibold)).frame(minHeight: 44) }
+                        }
                     }
-                    if model.activeRoute == nil { nearbySection }
-                } else {
-                    routeMap(height: typeSize.isAccessibilitySize ? 480 : 390)
-                    mapStatusStrip
-                    coverageBanner
-                    planningControls
-                    routeOptions
-                    if model.activeRoute == nil { nearbySection }
+                    routeMap(height: typeSize.isAccessibilitySize ? 300 : (geometry.size.width >= 800 ? 420 : 310))
+                        .id("route-map")
+                    if !model.routes.isEmpty || model.activeRoute != nil {
+                        mapStatusStrip
+                        coverageBanner
+                        routeOptions
+                    } else {
+                        nearbySection
+                    }
+                    if typeSize.isAccessibilitySize { walkAction }
+                    if waitingForLocation { InfoNote(symbol: "location", text: model.location.message) }
+                    if let locationNotice { InfoNote(symbol: "location", text: locationNotice) }
                 }
-                if waitingForLocation { InfoNote(symbol: "location", text: model.location.message) }
-                if let locationNotice { InfoNote(symbol: "location", text: locationNotice) }
+            }
+            .onChange(of: model.routes.map(\.id)) { _, routes in
+                guard !routes.isEmpty else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo("route-map", anchor: .top) }
+            }
+            .onChange(of: previewRequest) { _, _ in
+                guard model.selectedRoute != nil, model.activeRoute == nil, !showRouteDetails else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo("route-map", anchor: .top) }
             }
         }
         .adaptiveNavigationBar()
-        .safeAreaInset(edge: .bottom, spacing: 0) { walkAction }
+        .safeAreaInset(edge: .bottom, spacing: 0) { if !typeSize.isAccessibilitySize { walkAction } }
         .sheet(item: $searchTarget) { target in
             PlaceSearch(title: target == .start ? "Choose a start" : "Where would you like to go?", region: visibleRegion, nearby: discovery.places) { place in
                 clearRoutes()
@@ -107,7 +116,7 @@ struct PlannerView: View {
                             if showAir { AirMapLegend() }
                         }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
                     }
-                    .navigationTitle("Explore map").navigationBarTitleDisplayMode(.inline)
+                    .navigationTitle("Route map").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { expandedMap = false } } }
                     .sheet(item: $fullMapPlace) { place in
                         NearbyPlaceDetail(place: place, discovery: discovery) { chooseDestination(place) }
@@ -115,11 +124,11 @@ struct PlannerView: View {
                     .sheet(isPresented: $showFullMapRouteDetails) { RouteInspectionView(model: model) }
             }
         }
-        .confirmationDialog("Finish and save this walk?", isPresented: $confirmFinish, titleVisibility: .visible) {
+        .confirmationDialog("Finish and save this session?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Save walk") { model.finish() }
         } message: { Text("Only recorded intervals are saved. Missing intervals are labelled as incomplete coverage.") }
         .onChange(of: model.routes.map(\.id)) { _, _ in if !model.routes.isEmpty { focusRoutes() } }
-        .onChange(of: model.selectedRoute) { _, _ in if !model.routes.isEmpty { focusRoutes() } }
+        .onChange(of: model.selectedRoute) { _, _ in if !model.routes.isEmpty && model.activeRoute == nil { focusRoutes() } }
         .onChange(of: model.remainingOptions.map(\.id)) { _, _ in
             guard !model.remainingOptions.isEmpty else { return }
             let rect = model.remainingOptions.reduce(MKMapRect.null) { $0.union($1.polyline.boundingMapRect) }
@@ -140,6 +149,10 @@ struct PlannerView: View {
             moveCamera(.rect(rect.insetBy(dx: -max(minimumPadding, rect.size.width * 0.4), dy: -max(minimumPadding, rect.size.height * 0.7))))
         }
         .onChange(of: model.location.location?.timestamp) { _, _ in
+            if let activeLocation = model.location.location, model.activeRoute != nil, model.followCamera {
+                followRunnerCamera(at: activeLocation.coordinate)
+                return
+            }
             guard let location = model.location.currentLocation, model.activeRoute == nil else { return }
             if pendingComparison { pendingComparison = false; waitingForLocation = false; compare() }
             if waitingForLocation || (origin == .preview && start == nil) {
@@ -172,27 +185,57 @@ struct PlannerView: View {
     private func routeMap(height: CGFloat) -> some View {
         map(expanded: false)
             .overlay(alignment: .topLeading) {
-                if model.activeRoute == nil { journeyFields.padding(12).padding(.trailing, 32) }
-                else { StatusPill(title: model.demo ? "Demo session" : "Tracking while open", symbol: "record.circle", tint: Palette.deep).padding(12).background(.regularMaterial, in: Capsule()).padding(12) }
+                if model.activeRoute != nil { liveTurnBanner.padding(12).padding(.trailing, 54) }
             }
             .overlay(alignment: .bottomLeading) {
                 VStack(alignment: .leading, spacing: 6) {
                     if searchMovedArea && model.activeRoute == nil { searchAreaButton }
-                    Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "route" : "routes")")
-                        .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 8).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
+                    if model.activeRoute?.demo == true {
+                        Button {
+                            model.toggleSimulatedRun()
+                        } label: {
+                            Label(model.location.isSimulatingRun ? "Pause example movement" : "Play example movement",
+                                  systemImage: model.location.isSimulatingRun ? "pause.circle.fill" : "figure.run.circle.fill")
+                                .font(.caption.weight(.bold))
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .foregroundStyle(Palette.lime)
+                                .background(Palette.deep, in: Capsule())
+                        }.buttonStyle(PressStyle())
+                    } else if !typeSize.isAccessibilitySize {
+                        Text(model.routes.isEmpty ? discovery.scope : "\(model.routes.count) walking \(model.routes.count == 1 ? "path" : "paths")")
+                            .font(.caption2.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 8).foregroundStyle(Palette.ink).background(.regularMaterial, in: Capsule())
+                    }
                 }.padding(12).padding(.trailing, 54)
             }
             .frame(height: height).clipShape(RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).stroke(Palette.line, lineWidth: 0.7))
     }
 
+    /// Real-time turn-by-turn navigation banner powered by MapKit MKRoute.Step during an active walk/run.
+    private var liveTurnBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: model.isRunningLive ? "figure.run" : "arrow.turn.up.right")
+                .font(.headline).foregroundStyle(Palette.lime)
+                .frame(width: 38, height: 38)
+                .background(Palette.deep, in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.activeRoute?.source == "Apple Maps" ? (model.nextRouteStep?.instructions ?? "Follow your selected path") : "Follow your selected path")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink).lineLimit(1)
+                Text("\(Int(model.remainingDistanceMetres)) m remaining · \(model.livePaceLabel)")
+                    .font(.caption2.weight(.medium)).foregroundStyle(Palette.muted).monospacedDigit()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+    }
+
     private func map(expanded: Bool) -> some View {
         ExploreMapView(model: model, discovery: discovery, camera: $camera, style: $mapStyle, elevated: $elevated, showAir: $showAir, destination: destination, region: visibleRegion, expanded: expanded, select: { place in
             if expanded { fullMapPlace = place } else { placeDetail = place }
         }, inspectRoute: { route in
-            if model.activeRoute == nil { model.selectedRoute = route.id }
-            showAir = true
-            if expanded { showFullMapRouteDetails = true } else { showRouteDetails = true }
+            if model.activeRoute == nil { model.selectedRoute = route.id; previewRequest = UUID() }
         }, cameraChanged: { region in
             visibleRegion = region
             guard camera.positionedByUser, let centre = discovery.centre else { return }
@@ -201,20 +244,34 @@ struct PlannerView: View {
         }, useLocation: useCurrentLocation, expand: { expandedMap.toggle() })
     }
 
-    @ViewBuilder private var mapStatusStrip: some View {
-        HStack {
-            if showAir && (!(model.selected?.airSamples.isEmpty ?? true) || !discovery.airByPlace.isEmpty) {
-                AirMapLegend()
+    private var flowHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(model.activeRoute == nil ? "Plan a walk" : "Your walk")
+                    .font(.system(.title, design: .serif)).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+                Text(model.activeRoute == nil ? "Choose a destination, then compare routes." : "Follow your selected path. Keep the app open to record.")
+                    .font(.subheadline).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
-            Button { showDepartureForecast = true } label: {
-                Label("When to walk", systemImage: "clock.badge.checkmark")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .foregroundStyle(Palette.forest)
-                    .background(Palette.surface, in: Capsule())
-                    .overlay(Capsule().stroke(Palette.line, lineWidth: 0.7))
-            }.disabled(model.activeRoute != nil)
+            Spacer(minLength: 0)
+            Menu {
+                Button("Departure forecasts", systemImage: "clock") { showDepartureForecast = true }.disabled(model.activeRoute != nil)
+                Button("Geofencing and awareness", systemImage: "location.circle") { walkTool = .geofencing }
+                Button("Rerouting tools", systemImage: "arrow.triangle.branch") { walkTool = .rerouting }
+                if model.activeRoute == nil {
+                    Button("Try an example", systemImage: "sparkles") { model.loadDemo(); focusRoutes() }
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 44)
+                    .background(Palette.surface, in: Circle())
+            }.accessibilityLabel("More walking tools")
+        }
+    }
+
+    private var mapStatusStrip: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Show air sample areas", isOn: $showAir).font(.subheadline).tint(Palette.forest)
+                .accessibilityHint("Approximate sample areas, not measured pollution boundaries.")
+            if showAir { AirMapLegend() }
         }
     }
 
@@ -224,16 +281,37 @@ struct PlannerView: View {
         }
     }
 
-    @ViewBuilder private var nearbySection: some View {
-        if model.routes.isEmpty {
-            NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
-        } else {
-            Surface {
-                DisclosureGroup("Nearby places to explore", isExpanded: $showNearbyWhenRouted) {
-                    NearbyPlacesView(discovery: discovery, category: $nearbyCategory, radius: $radius, useLocation: useCurrentLocation, refresh: { refreshNearby() }, select: { placeDetail = $0 })
-                        .padding(.top, 12)
-                }.font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+    private var nearbySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Nearby places").font(.headline).foregroundStyle(Palette.ink)
+                Spacer()
+                Menu {
+                    Picker("Place type", selection: $nearbyCategory) {
+                        ForEach(NearbyCategory.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Picker("Search radius", selection: $radius) { Text("1 km").tag(1000.0); Text("3 km").tag(3000.0); Text("5 km").tag(5000.0) }
+                    Button("Refresh places", systemImage: "arrow.clockwise") { refreshNearby() }
+                } label: { Label(nearbyCategory.rawValue, systemImage: "line.3.horizontal.decrease").font(.caption).frame(minHeight: 44) }
             }
+            Text(discovery.scope).font(.caption).foregroundStyle(Palette.muted)
+            if discovery.loading { ProgressView("Finding nearby places…").font(.subheadline) }
+            else if let message = discovery.message { Text(message).font(.caption).foregroundStyle(Palette.muted) }
+            ForEach(discovery.places.prefix(3)) { place in
+                Button { chooseDestination(place) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: place.category.symbol).foregroundStyle(Palette.forest).frame(width: 28).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                            Text("\(place.distanceLabel) straight-line distance").font(.caption).foregroundStyle(Palette.muted)
+                        }.fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(Palette.forest).accessibilityHidden(true)
+                    }.padding(14).frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain).accessibilityHint("Uses this place as your destination.")
+            }
+            Button("Search for another place") { searchTarget = .destination }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }
     }
 
@@ -244,41 +322,47 @@ struct PlannerView: View {
     }
 
     private var journeyFields: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(spacing: 5) {
-                Circle().stroke(Palette.forest, lineWidth: 2).frame(width: 9, height: 9)
-                Rectangle().fill(Palette.line).frame(width: 1, height: 20)
-                Image(systemName: "mappin.circle.fill").font(.system(size: 14)).foregroundStyle(Palette.forest)
-            }.padding(.top, 14).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 0) {
-                Button { searchTarget = .start } label: {
-                    HStack { Text(start?.name ?? "Current location").font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "chevron.down").font(.caption2) }.frame(minHeight: 40)
-                }.accessibilityLabel("Start: \(start?.name ?? "Current location"). Change start")
-                Divider()
-                Button { searchTarget = .destination } label: {
-                    HStack { Text(destination?.name ?? (model.demo ? "Viharamahadevi Park · demo" : "Where to?")).font(.subheadline.weight(.medium)).lineLimit(1); Spacer(); Image(systemName: "magnifyingglass").font(.caption) }.frame(minHeight: 40)
-                }.accessibilityLabel("Destination: \(destination?.name ?? "Choose destination")")
-            }
-        }.padding(.horizontal, 14).padding(.vertical, 4).foregroundStyle(Palette.ink).background(Palette.surface, in: RoundedRectangle(cornerRadius: 16)).shadow(color: .black.opacity(0.07), radius: 12, y: 4)
+        VStack(spacing: 0) {
+            journeyField(title: "From", value: start?.name ?? "My current location", symbol: "location.circle", target: .start)
+            Divider()
+            journeyField(title: "To", value: destination?.name ?? (model.demo ? "Example destination" : "Where would you like to go?"), symbol: "mappin.circle", target: .destination)
+        }
+    }
+    private func journeyField(title: String, value: String, symbol: String, target: SearchTarget) -> some View {
+        Button { searchTarget = target } label: {
+            HStack(spacing: 12) {
+                if !typeSize.isAccessibilitySize { Image(systemName: symbol).font(.title3).foregroundStyle(Palette.forest).accessibilityHidden(true) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.caption).foregroundStyle(Palette.muted)
+                    Text(value).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if !typeSize.isAccessibilitySize { Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(Palette.forest).accessibilityHidden(true) }
+            }.frame(maxWidth: .infinity, minHeight: 54, alignment: .leading).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel("\(title): \(value). Change \(target == .start ? "start" : "destination")")
     }
 
     @ViewBuilder private var planningControls: some View {
         if model.activeRoute == nil {
-            HStack {
+            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
                 Label("Pace", systemImage: "figure.walk").font(.caption.weight(.medium)).foregroundStyle(Palette.muted)
-                Picker("Walking intensity", selection: $model.intensity) { ForEach(WalkingIntensity.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.menu).font(.subheadline.weight(.semibold)).disabled(!model.routes.isEmpty)
-                Spacer()
+                Picker("Walking intensity", selection: $model.intensity) {
+                    Text("Easy").tag(WalkingIntensity.easy)
+                    Text("Brisk").tag(WalkingIntensity.brisk)
+                    Text("Fast").tag(WalkingIntensity.fast)
+                }.pickerStyle(.menu).font(.subheadline.weight(.semibold)).disabled(!model.routes.isEmpty)
+                if !typeSize.isAccessibilitySize { Spacer() }
                 if start != nil {
                     Button("Use my location") { start = nil; clearRoutes(); useCurrentLocation() }.font(.caption.weight(.semibold))
                 }
             }
             if !model.demo {
-                PrimaryButton(title: pendingComparison ? "Getting location…" : (model.routes.isEmpty ? "Find walking routes" : "Refresh routes"), symbol: "arrow.triangle.branch") { compare() }
+                PrimaryButton(title: pendingComparison ? "Getting location…" : (model.routes.isEmpty ? "Compare routes" : "Update routes"), symbol: "arrow.triangle.branch") { compare() }
                     .disabled(destination == nil || model.busy || pendingComparison)
             }
             if model.busy {
-                HStack(spacing: 12) { ProgressView().tint(Palette.forest); Text("Comparing routes & air samples…").font(.subheadline).foregroundStyle(Palette.muted) }
+                HStack(spacing: 12) { ProgressView().tint(Palette.forest); Text("Finding paths and sampling air…").font(.subheadline).foregroundStyle(Palette.muted); Spacer(); Button("Cancel") { routeTask?.cancel(); model.cancelPlanning(); pendingComparison = false; waitingForLocation = false } }
                     .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 16))
             }
         }
@@ -289,52 +373,56 @@ struct PlannerView: View {
             activeCard(route)
             ActiveMotionCard(model: model, demo: route.demo)
             if !route.demo {
-                Button { walkTool = .rerouting } label: { Label("Rerouting controls", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
+                Button { walkTool = .rerouting } label: { Label("Compare the remaining walk", systemImage: "arrow.triangle.branch").font(.subheadline.weight(.semibold)) }.frame(minHeight: 44)
             }
         } else if model.routes.isEmpty {
             Surface {
                 HStack(spacing: 12) {
-                    Image(systemName: "sparkles").font(.title3).foregroundStyle(Palette.forest)
+                    Image(systemName: "leaf.fill").font(.title3).foregroundStyle(Color(hex: 0x1D8348))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Try an example route comparison").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                        Text("Preview time, distance & modelled exposure.").font(.caption).foregroundStyle(Palette.muted)
+                        Text("Preview clean-air paths & live 3D running").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                        Text("Compare low-pollution park corridors against main roads.").font(.caption).foregroundStyle(Palette.muted)
                     }
                     Spacer()
                     Button("Load demo") { model.loadDemo(); focusRoutes() }.font(.caption.weight(.semibold))
                 }
             }
         } else {
-            HStack {
-                SectionHeading(title: "Routes", detail: "\(model.routes.count) options")
-                Spacer()
-                Picker("Extra-time budget", selection: $model.extraMinutes) {
-                    Text("+5m").tag(5.0); Text("+10m").tag(10.0); Text("+20m").tag(20.0)
-                }.pickerStyle(.menu).font(.caption)
-            }
+            SectionHeading(title: "Choose a route", detail: "\(model.routes.count) options")
             ForEach(model.routes) { route in
                 RouteChoiceCard(route: route, routes: model.routes,
                                 ventilation: model.intensity.ventilation,
                                 selected: model.selectedRoute == route.id) {
-                    model.selectedRoute = route.id; showAir = true; showRouteDetails = true
+                    model.selectedRoute = route.id; previewRequest = UUID()
                 }
             }
             if let notice = model.routeNotice { InfoNote(text: notice) }
-            if !model.demo {
-                Button("Add pollution-avoidance detour") {
+            if !model.demo, model.hasAvoidableAreas {
+                Button {
                     routeTask?.cancel(); routeTask = Task { await model.addAvoidanceOption() }
-                }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.busy)
+                } label: {
+                    Label("Find an alternative around higher-AQI samples", systemImage: "leaf.arrow.triangle.circlepath")
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }.disabled(model.busy)
             }
         }
     }
 
     private func activeCard(_ route: WalkRoute) -> some View {
         Surface {
-            HStack { SectionHeading(title: "Active walk"); StatusPill(title: "Recording", symbol: "record.circle") }
+            HStack {
+                SectionHeading(title: model.isRunningLive ? "Live run telemetry" : "Live walk telemetry")
+                Spacer()
+                StatusPill(title: "Live GPS", symbol: route.isCleanAirPath ? "leaf.fill" : "location.north.line.fill")
+            }
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack {
-                    Metric(title: "Elapsed", value: "\(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date) / 60)) min")
-                    Metric(title: "Distance", value: String(format: "%.0f m", model.trackedMetres))
-                    Metric(title: "Est. dose", value: doseText(model.activeEstimate.observedDose))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], spacing: 14) {
+                    Metric(title: "Elapsed", value: "\(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date) / 60))m \(Int(context.date.timeIntervalSince(model.walkStarted ?? context.date)) % 60)s")
+                    Metric(title: "Live pace", value: model.livePaceLabel)
+                    Metric(title: "Speed", value: String(format: "%.1f km/h", model.liveSpeedKmh))
+                    Metric(title: "Covered", value: String(format: "%.0f m", model.trackedMetres))
+                    Metric(title: "Remaining", value: String(format: "%.0f m", model.remainingDistanceMetres))
+                    Metric(title: "Est. PM2.5 dose", value: doseText(model.activeEstimate.observedDose))
                 }
             }
             InfoNote(text: model.trackingMessage)
@@ -344,18 +432,45 @@ struct PlannerView: View {
 
     @ViewBuilder private var walkAction: some View {
         if model.activeRoute != nil || model.selected != nil {
-            HStack(spacing: 12) {
-                PrimaryButton(title: model.activeRoute != nil ? "Finish & save walk" : (model.demo ? "Start demo session" : "Start this walk"), symbol: model.activeRoute != nil ? "checkmark" : "figure.walk") {
-                    if model.activeRoute != nil { confirmFinish = true } else if let route = model.selected { model.start(route) }
+            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
+                PrimaryButton(title: model.activeRoute != nil ? "Finish walk" : (model.demo ? "Start example walk" : "Start this walk"),
+                              symbol: model.activeRoute != nil ? "checkmark" : (model.intensity == .fast ? "figure.run" : "location.north.line.fill")) {
+                    if model.activeRoute != nil { confirmFinish = true }
+                    else if let route = model.selected {
+                        model.start(route)
+                        if let first = route.coordinates.first { followRunnerCamera(at: first) }
+                    }
                 }
                 if let route = model.selected, model.activeRoute == nil {
                     Button {
                         if speaking { model.voice.stop(); speaking = false }
-                        else { model.voice.speak("\(route.name). \(Int(route.seconds/60)) minutes. \(Int(route.metres)) metres. Estimated dose \(doseText(route.estimate.observedDose)). Sample coverage \(Int(route.estimate.coverage*100)) percent."); speaking = true }
-                    } label: { Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.headline).foregroundStyle(Palette.deep).frame(width: 54, height: 54).background(Palette.lime, in: RoundedRectangle(cornerRadius: 16)) }
+                        else { model.voice.speak("\(route.name). \(route.isCleanAirPath ? "Lower sampled air-quality index." : "") \(Int(route.seconds/60)) minutes. \(Int(route.metres)) metres. Estimated dose \(doseText(route.estimate.observedDose))."); speaking = true }
+                    } label: {
+                        HStack {
+                            if typeSize.isAccessibilitySize {
+                                Text(speaking ? "Stop reading" : "Read route summary").font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                            }
+                            Image(systemName: speaking ? "stop.fill" : "speaker.wave.2").font(.system(size: 20, weight: .semibold)).accessibilityHidden(true)
+                        }.padding(.horizontal, typeSize.isAccessibilitySize ? 16 : 0)
+                            .foregroundStyle(Palette.deep).frame(minWidth: 54, maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, minHeight: 54)
+                            .background(Palette.lime, in: RoundedRectangle(cornerRadius: 16))
+                    }
                         .accessibilityLabel(speaking ? "Stop reading route summary" : "Read route summary aloud")
                 }
-            }.padding(.horizontal, 22).padding(.vertical, 10).frame(maxWidth: 800).frame(maxWidth: .infinity).background(.regularMaterial)
+            }.padding(.horizontal, typeSize.isAccessibilitySize ? 0 : 22).padding(.vertical, 10).frame(maxWidth: 800).frame(maxWidth: .infinity).background(.regularMaterial)
+        }
+    }
+
+    private func followRunnerCamera(at coordinate: CLLocationCoordinate2D) {
+        let cam = MapCamera(
+            centerCoordinate: coordinate,
+            distance: model.isRunningLive ? 380 : 460,
+            heading: model.location.headingDegrees,
+            pitch: model.pitch3D ? 55 : 0
+        )
+        withAnimation(reduceMotion ? nil : .linear(duration: 0.8)) {
+            camera = .camera(cam)
         }
     }
 
@@ -380,7 +495,7 @@ struct PlannerView: View {
         locationNotice = nil; model.location.request()
         guard let location = model.location.currentLocation else { waitingForLocation = true; return }
         waitingForLocation = false
-        if model.activeRoute != nil { focus(on: location.coordinate); return }
+        if model.activeRoute != nil { followRunnerCamera(at: location.coordinate); return }
         origin = .current; refreshNearby(recenter: true)
     }
     private func refreshNearby(recenter: Bool = false) {

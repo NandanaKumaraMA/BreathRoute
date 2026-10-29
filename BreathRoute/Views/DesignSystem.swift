@@ -60,9 +60,10 @@ struct PrimaryButton: View {
     var symbol = "arrow.up.right"
     var action: () -> Void
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) { Text(title); Spacer(); Image(systemName: symbol) }
+            HStack(spacing: 12) { Text(title).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 0); if !typeSize.isAccessibilitySize { Image(systemName: symbol).accessibilityHidden(true) } }
                 .font(.headline).padding(.horizontal, 20).padding(.vertical, 18)
                 .foregroundStyle(Palette.lime).frame(maxWidth: .infinity)
                 .background(Palette.deep.opacity(enabled ? 1 : 0.45), in: RoundedRectangle(cornerRadius: 18))
@@ -106,8 +107,9 @@ struct StatusPill: View {
 struct SectionHeading: View {
     let title: String
     var detail: String? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(alignment: .firstTextBaseline) { Text(title).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink); Spacer(); if let detail { Text(detail).font(.caption).foregroundStyle(Palette.muted) } }
+        (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))) { Text(title).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true); if !typeSize.isAccessibilitySize { Spacer() }; if let detail { Text(detail).font(.caption).foregroundStyle(Palette.muted) } }
     }
 }
 struct BrandMark: View {

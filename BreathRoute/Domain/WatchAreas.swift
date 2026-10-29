@@ -1,6 +1,6 @@
 import Foundation
 
-public struct WatchArea: Identifiable, Sendable {
+public struct WatchArea: Identifiable, Codable, Sendable {
     public let id: String
     public let latitude: Double
     public let longitude: Double
@@ -22,8 +22,8 @@ public struct WatchArea: Identifiable, Sendable {
         return distance <= radius
     }
     /// A closed, circumscribed GeoJSON [longitude, latitude] polygon around the display circle.
-    public func polygon() -> [[Double]] {
-        let count = 36, radians = Double.pi / 180
+    public func polygon(vertexCount: Int = 36) -> [[Double]] {
+        let count = max(12, min(vertexCount, 72)), radians = Double.pi / 180
         let angular = radius / cos(.pi / Double(count)) / 6_371_000
         let lat = latitude * radians, lon = longitude * radians
         let ring = (0..<count).map { i -> [Double] in

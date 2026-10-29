@@ -79,8 +79,17 @@ struct SavedRoute: Codable, Sendable {
     let airSamples: [SavedAirSample]
     let source: String
     let avoidedAreaCount: Int
+    var excludedAreas: [WatchArea]? = nil
+    private var validExclusions: Bool {
+        guard let areas = excludedAreas else { return true }
+        return areas.count == avoidedAreaCount && areas.count <= 8 && Set(areas.map(\.id)).count == areas.count && areas.allSatisfy {
+            !$0.id.isEmpty && GeoCoordinate(latitude: $0.latitude, longitude: $0.longitude).isValid &&
+            $0.radius.isFinite && $0.radius > 0 && $0.radius <= 1000 && $0.pm25.isFinite && $0.pm25 >= 0 &&
+            (3...5).contains($0.aqi) && $0.sampledAt.timeIntervalSince1970.isFinite
+        }
+    }
     var isValid: Bool {
-        coordinates.count >= 2 && coordinates.allSatisfy(\.isValid) && metres.isFinite && metres >= 0 && seconds.isFinite && seconds > 0 &&
+        validExclusions && coordinates.count >= 2 && coordinates.allSatisfy(\.isValid) && metres.isFinite && metres >= 0 && seconds.isFinite && seconds > 0 &&
         estimate.coverage.isFinite && (0...1).contains(estimate.coverage) && (estimate.observedDose.map { $0.isFinite && $0 >= 0 } ?? true) &&
         airSamples.allSatisfy { $0.coordinate.isValid && $0.timeFraction.isFinite && (0...1).contains($0.timeFraction) &&
             ($0.reading.map { $0.pm25.isFinite && $0.pm25 >= 0 && (1...5).contains($0.aqi) && $0.date.timeIntervalSince1970.isFinite } ?? true) }

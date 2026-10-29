@@ -3,6 +3,7 @@ import SwiftUI
 /// Today: one answer ("how is the air?"), one action ("plan a walk"), everything else quiet.
 struct DashboardView: View {
     @Bindable var model: AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var addingSymptom = false
     @State private var showDepartureForecast = false
 
@@ -23,6 +24,14 @@ struct DashboardView: View {
         .adaptiveNavigationBar()
         .sheet(isPresented: $addingSymptom) { SymptomEditor(model: model, entry: SymptomEntry()) }
         .sheet(isPresented: $showDepartureForecast) { ForecastEntryView(model: model) }
+        .task {
+            guard !model.demo, model.location.hasAuthorization else { return }
+            model.location.request()
+            if model.location.currentLocation != nil { await model.refreshAir(reportErrors: false) }
+        }
+        .onChange(of: model.location.currentLocation != nil) { _, available in
+            if available, model.air == nil, !model.demo { Task { await model.refreshAir(reportErrors: false) } }
+        }
     }
 
     private var header: some View {
@@ -32,11 +41,11 @@ struct DashboardView: View {
                     .font(.subheadline).foregroundStyle(Palette.muted)
                 Text("Ready for a walk?")
                     .font(.system(.largeTitle, design: .serif).weight(.medium)).foregroundStyle(Palette.ink)
-            }
+            }.fixedSize(horizontal: false, vertical: true)
             Spacer()
             Button { model.section = .profile } label: {
                 Text(model.name.first.map { String($0).uppercased() } ?? "You")
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.forest)
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.forest)
                     .frame(width: 44, height: 44)
                     .background(Palette.surface, in: Circle())
                     .overlay(Circle().stroke(Palette.line, lineWidth: 1))
@@ -53,7 +62,7 @@ struct DashboardView: View {
                 }.accessibilityElement(children: .combine)
                 Spacer()
                 Button { Task { await model.refreshAir() } } label: {
-                    Image(systemName: "arrow.clockwise").frame(width: 40, height: 40)
+                    Image(systemName: "arrow.clockwise").font(.system(size: 18)).frame(width: 44, height: 44)
                 }
                 .foregroundStyle(.white.opacity(0.85))
                 .accessibilityLabel("Refresh current air quality")
@@ -61,16 +70,17 @@ struct DashboardView: View {
             }
             Text(headline).font(.system(.title, design: .serif)).foregroundStyle(.white)
             Text(detail).font(.subheadline).foregroundStyle(.white.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
             if model.air == nil, model.activeRoute == nil {
                 Button(model.location.hasAuthorization ? "Use my current location" : "Enable location") { model.location.request() }
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.lime).frame(minHeight: 44)
             }
             Button { model.section = .routes } label: {
                 HStack {
-                    Image(systemName: "figure.walk")
+                    if !typeSize.isAccessibilitySize { Image(systemName: "figure.walk").accessibilityHidden(true) }
                     Text(model.activeRoute == nil ? "Plan a walk" : "Return to your walk")
                     Spacer()
-                    Image(systemName: "arrow.right")
+                    if !typeSize.isAccessibilitySize { Image(systemName: "arrow.right").accessibilityHidden(true) }
                 }
                 .font(.headline).padding(.horizontal, 18).frame(minHeight: 54)
                 .foregroundStyle(Palette.deep).background(Palette.lime, in: RoundedRectangle(cornerRadius: 16))
@@ -100,15 +110,17 @@ struct DashboardView: View {
     private func row(symbol: String, title: String, subtitle: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.headline).foregroundStyle(Palette.forest)
+                if !typeSize.isAccessibilitySize {
+                    Image(systemName: symbol).font(.headline).foregroundStyle(Palette.forest)
                     .frame(width: 38, height: 38).background(Palette.forest.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
                     .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                     Text(subtitle).font(.caption).foregroundStyle(Palette.muted)
-                }
+                }.fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                if !typeSize.isAccessibilitySize { Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted).accessibilityHidden(true) }
             }
             .padding(10).frame(maxWidth: .infinity, minHeight: 56, alignment: .leading).contentShape(Rectangle())
         }
@@ -117,17 +129,16 @@ struct DashboardView: View {
 
     private var headline: String {
         if let air = model.air { return "Air is \(air.label.lowercased()) right now" }
-        return KeyStore.read("openweather").isEmpty ? "See the air before you go" : "No reading yet"
+        return "See the air before you go"
     }
     private var detail: String {
+        if let notice = model.airNotice { return notice }
         if let air = model.air {
             let pm = air.pm25.formatted(.number.precision(.fractionLength(1)))
             return air.demo ? "Example data · PM2.5 \(pm) µg/m³"
                 : "PM2.5 \(pm) µg/m³ · updated \(air.date.formatted(.dateTime.hour().minute()))"
         }
-        return KeyStore.read("openweather").isEmpty
-            ? "Add your OpenWeather key in You to see live air quality, or try the example walk in Explore."
-            : "Allow location, then tap refresh."
+        return "Allow location and tap refresh, or preview clean-air routes in Explore."
     }
     private var statusTag: String {
         guard let air = model.air else { return "No live reading" }

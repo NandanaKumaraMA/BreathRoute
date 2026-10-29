@@ -7,8 +7,6 @@ struct ProfileView: View {
     @AppStorage("dailyReminder") private var reminder = false
     @State private var reminderDraft = false
     @State private var time = Date()
-    @State private var key = ""
-    @State private var routingKey = ""
     @State private var status: String?
     @State private var working = false
     @State private var showAccount = false
@@ -21,7 +19,7 @@ struct ProfileView: View {
             AccountCard(model: model) { showAccount = true }
             remindersAndPrivacyCard
             healthAndMotionDisclosure
-            connectionsAndNotesCard
+            methodologyCard
         }
         .adaptiveNavigationBar()
         .sheet(isPresented: $showAccount) { AccountAccessView(model: model) }
@@ -83,7 +81,7 @@ struct ProfileView: View {
                 DatePicker("Reminder time", selection: $time, displayedComponents: .hourAndMinute).font(.subheadline)
             }
             Button(working ? "Saving…" : "Save reminder preference") { saveReminder() }
-                .font(.caption.weight(.semibold)).frame(minHeight: 38).disabled(working)
+                .font(.caption.weight(.semibold)).frame(minHeight: 44).disabled(working)
         }
     }
 
@@ -103,7 +101,7 @@ struct ProfileView: View {
                         if let record = model.health.heartRecord { vitalRecord("Heart rate", unit: "bpm", record: record) }
                         if let record = model.health.respiratoryRecord { vitalRecord("Respiratory rate", unit: "breaths/min", record: record) }
                         Button("Read recent health records") { Task { await model.health.readRecentVitals() } }
-                            .font(.caption.weight(.semibold)).frame(minHeight: 38)
+                            .font(.caption.weight(.semibold)).frame(minHeight: 44)
                             .disabled(model.health.isReadingVitals || model.health.isReadingActivity)
                     }
                 }.padding(.top, 12)
@@ -111,57 +109,17 @@ struct ProfileView: View {
         }
     }
 
-    private var connectionsAndNotesCard: some View {
+    private var methodologyCard: some View {
         Surface {
-            SectionHeading(title: "Data connections & methodology")
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 12) {
-                    SecureField("OpenWeather API key", text: $key)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .font(.subheadline).padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
-                    Button("Save key on this device") {
-                        do {
-                            try KeyStore.save(key.trimmingCharacters(in: .whitespacesAndNewlines), key: "openweather")
-                            key = ""; status = "OpenWeather API key saved in Keychain."
-                        } catch { status = "Could not save the API key." }
-                    }.font(.subheadline.weight(.semibold)).disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Link("OpenWeather API & attribution", destination: URL(string: "https://openweathermap.org/api/air-pollution")!).font(.caption)
-                }.padding(.top, 10)
-            } label: {
-                connectionLabel(symbol: "cloud.sun", title: "Air-quality connection", ready: !KeyStore.read("openweather").isEmpty)
-            }
-            Divider()
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 12) {
-                    SecureField("openrouteservice API key", text: $routingKey)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .font(.subheadline).padding(12).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
-                    Button("Save routing key on this device") {
-                        do {
-                            try KeyStore.save(routingKey.trimmingCharacters(in: .whitespacesAndNewlines), key: "openrouteservice")
-                            routingKey = ""; status = "Routing key saved in Keychain."
-                        } catch { status = "Could not save the routing key." }
-                    }.font(.subheadline.weight(.semibold)).disabled(routingKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Link("openrouteservice API & attribution", destination: URL(string: "https://openrouteservice.org/dev/")!).font(.caption)
-                }.padding(.top, 10)
-            } label: {
-                connectionLabel(symbol: "arrow.triangle.branch", title: "Walking-route connection", ready: !KeyStore.read("openrouteservice").isEmpty)
-            }
-            Divider()
-            DisclosureGroup("Understand your estimate") {
-                Text("Dose combines PM2.5 (µg/m³), assumed ventilation (Easy 15, Brisk 25, Fast 35 L/min) and time. Missing or stale samples reduce coverage. Walks are recorded while the app is open.")
-                    .font(.caption).foregroundStyle(Palette.muted).padding(.top, 8)
+            DisclosureGroup("Understand your estimate & attribution") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Dose combines PM2.5 (µg/m³), assumed ventilation (Easy 15, Brisk 25, Fast 35 L/min) and time. Missing or stale samples reduce coverage. Walks are recorded while the app is open.")
+                        .font(.caption).foregroundStyle(Palette.muted)
+                    Link("OpenWeather Air Pollution API", destination: URL(string: "https://openweathermap.org/api/air-pollution")!).font(.caption)
+                    Link("Geoapify routing & OpenStreetMap", destination: URL(string: "https://www.geoapify.com/routing-api/")!).font(.caption)
+                    Link("Optional openrouteservice", destination: URL(string: "https://openrouteservice.org/dev/")!).font(.caption)
+                }.padding(.top, 8)
             }.font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
-        }
-    }
-
-    private func connectionLabel(symbol: String, title: String, ready: Bool) -> some View {
-        HStack(spacing: 12) {
-            settingsIcon(symbol, tint: Palette.forest)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                Text(ready ? "API key saved in Keychain" : "Not configured").font(.caption).foregroundStyle(Palette.muted)
-            }
         }
     }
 

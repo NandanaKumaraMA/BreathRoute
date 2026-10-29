@@ -7,9 +7,9 @@ enum ExposureLevel {
 
     var title: String {
         switch self {
-        case .lowest: "Lowest exposure"
-        case .similar: "Similar exposure"
-        case .higher: "Higher exposure"
+        case .lowest: "Lowest estimated exposure"
+        case .similar: "Similar estimates"
+        case .higher: "Higher estimated exposure"
         case .unknown: "Not enough air data"
         }
     }
@@ -51,6 +51,7 @@ struct RouteChoiceCard: View {
     let selected: Bool
     let action: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
     private var level: ExposureLevel { .level(for: route, in: routes, ventilation: ventilation) }
     private var minutes: Int { Int((route.seconds / 60).rounded()) }
     private var timeNote: String {
@@ -65,15 +66,15 @@ struct RouteChoiceCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(route.name.isEmpty ? "Walking route" : route.name)
-                        .font(.headline).foregroundStyle(Palette.ink)
+                        .font(.headline).foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.title3).foregroundStyle(Palette.forest)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))) {
                     Text("\(minutes) min").font(.system(.title2, design: .rounded).weight(.semibold)).monospacedDigit()
                     Text(timeNote).font(.subheadline).foregroundStyle(Palette.muted)
-                    Spacer(minLength: 0)
+                    if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
                     Text(String(format: "%.1f km", route.metres / 1000)).font(.subheadline).foregroundStyle(Palette.muted)
                 }.foregroundStyle(Palette.ink)
                 StatusPill(title: level.title, symbol: level.symbol, tint: level.tint)
@@ -84,8 +85,7 @@ struct RouteChoiceCard: View {
                         Text("Example route").font(.caption).foregroundStyle(Palette.muted)
                     }
                     Spacer()
-                    Text("Details").font(.caption.weight(.semibold)).foregroundStyle(Palette.forest)
-                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(Palette.forest)
+                    Text(selected ? "Shown on map" : "Tap to preview").font(.caption.weight(.semibold)).foregroundStyle(Palette.forest)
                 }
             }
             .padding(18).frame(maxWidth: .infinity, alignment: .leading)
@@ -93,9 +93,8 @@ struct RouteChoiceCard: View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(selected ? Palette.forest : Palette.line, lineWidth: selected ? 1.5 : 0.7))
         }
         .buttonStyle(PressStyle())
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(route.name.isEmpty ? "Walking route" : route.name), \(minutes) minutes, \(timeNote), \(String(format: "%.1f", route.metres / 1000)) kilometres. \(level.title).")
-        .accessibilityHint("Shows details and alternatives")
+        .accessibilityHint("Selects this route on the map. Use air samples and alternatives for details.")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

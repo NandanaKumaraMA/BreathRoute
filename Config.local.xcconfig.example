@@ -1,0 +1,4 @@
+// Copy to Config.local.xcconfig and supply your own provider keys.
+BREATHE_OPENWEATHER_KEY = YOUR_OPENWEATHER_KEY
+BREATHE_GEOAPIFY_KEY = YOUR_GEOAPIFY_KEY
+BREATHE_ORS_KEY =

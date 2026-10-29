@@ -7,9 +7,9 @@ enum ExploreMapStyle: String, CaseIterable, Identifiable {
     func style(elevated: Bool) -> MapStyle {
         let elevation: MapStyle.Elevation = elevated ? .realistic : .flat
         return switch self {
-        case .streets: .standard(elevation: elevation, pointsOfInterest: .excludingAll)
+        case .streets: .standard(elevation: elevation, emphasis: .automatic, pointsOfInterest: .excludingAll, showsTraffic: false)
         case .satellite: .imagery(elevation: elevation)
-        case .hybrid: .hybrid(elevation: elevation, pointsOfInterest: .excludingAll)
+        case .hybrid: .hybrid(elevation: elevation, pointsOfInterest: .excludingAll, showsTraffic: false)
         }
     }
 }
@@ -29,9 +29,11 @@ struct ExploreMapView: View {
     let cameraChanged: (MKCoordinateRegion) -> Void
     let useLocation: () -> Void
     let expand: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Namespace private var mapScope
 
     var body: some View {
-        Map(position: $camera) {
+        Map(position: $camera, scope: mapScope) {
             UserAnnotation()
             if showAir {
                 if model.routes.isEmpty && model.activeRoute == nil && !model.demo {
@@ -42,12 +44,20 @@ struct ExploreMapView: View {
                     }
                 }
             }
-            RouteComparisonLayers(routes: model.routes, selectedID: model.selectedRoute, showAir: showAir, allowSelection: model.activeRoute == nil, select: inspectRoute)
+            RouteComparisonLayers(routes: model.routes, selectedID: model.selectedRoute, showAir: showAir, showRouteLabels: !typeSize.isAccessibilitySize, allowSelection: model.activeRoute == nil, select: inspectRoute)
             RecordedPathLayers(points: model.recordedPath)
             ForEach(model.remainingOptions) { route in
-                MapPolyline(route.polyline).stroke(Color(hex: 0x6E5BA8), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [7, 5]))
+                MapPolyline(route.polyline).stroke(
+                    route.isCleanAirPath ? Color(hex: 0x16A085) : Color(hex: 0x6E5BA8),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [7, 5])
+                )
             }
-            if model.activeRoute == nil && !model.demo {
+            if model.activeRoute != nil, let liveLocation = model.location.location ?? model.recordedPath.last.map({ CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }) {
+                Annotation("Live Runner", coordinate: liveLocation.coordinate) {
+                    LiveRunnerPuck(heading: model.location.headingDegrees, isRunning: model.isRunningLive, speedKmh: model.liveSpeedKmh)
+                }.annotationTitles(.hidden)
+            }
+            if model.activeRoute == nil && model.routes.isEmpty && !model.demo {
                 ForEach(mapPlaces, id: \.element.id) { index, place in
                     Annotation(place.name, coordinate: place.coordinate, anchor: .bottom) {
                         Button { select(place) } label: {
@@ -61,62 +71,112 @@ struct ExploreMapView: View {
             }
             if let first = model.selected?.coordinates.first {
                 Annotation("Start", coordinate: first) {
-                    Image(systemName: "figure.walk").font(.subheadline.bold()).foregroundStyle(Palette.deep).frame(width: 34, height: 34).background(.white, in: Circle()).overlay(Circle().stroke(Palette.deep, lineWidth: 2))
+                    Image(systemName: "figure.walk").font(.subheadline.bold()).foregroundStyle(Palette.deep)
+                        .frame(width: 34, height: 34).background(.white, in: Circle())
+                        .overlay(Circle().stroke(Palette.deep, lineWidth: 2))
                 }
             }
             if let last = model.selected?.coordinates.last ?? destination?.placemark.coordinate {
                 Annotation("Destination", coordinate: last, anchor: .bottom) {
-                    Image(systemName: "flag.fill").font(.subheadline).foregroundStyle(Palette.lime).frame(width: 38, height: 38).background(Palette.deep, in: RoundedRectangle(cornerRadius: 13)).overlay(RoundedRectangle(cornerRadius: 13).stroke(.white, lineWidth: 2))
+                    Image(systemName: "flag.fill").font(.subheadline).foregroundStyle(Palette.lime)
+                        .frame(width: 38, height: 38).background(Palette.deep, in: RoundedRectangle(cornerRadius: 13))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white, lineWidth: 2))
                 }
             }
         }
         .mapStyle(style.style(elevated: elevated))
-        .mapControls { MapCompass(); MapScaleView() }
+        .mapControls {
+            MapCompass(scope: mapScope)
+            MapScaleView(scope: mapScope)
+        }
+        .mapScope(mapScope)
         .onMapCameraChange(frequency: .onEnd) { context in cameraChanged(context.region) }
-        .accessibilityLabel("Explore map. Nearby places and route information are also available in lists.")
+        .accessibilityLabel("Walking route map. Choose a destination above, or select a nearby place.")
         .overlay(alignment: .bottomTrailing) {
             VStack(spacing: 8) {
                 Menu {
                     Picker("Map style", selection: $style) { ForEach(ExploreMapStyle.allCases) { Text($0.rawValue).tag($0) } }
-                    Toggle("Terrain elevation", isOn: $elevated)
+                    Toggle("3D terrain & buildings", isOn: $elevated)
+                    Toggle("3D navigation pitch", isOn: $model.pitch3D)
                     Toggle("Air sample circles", isOn: $showAir)
-                } label: { toolIcon("square.3.layers.3d") }.accessibilityLabel("Map layers and style")
+                } label: { toolIcon("square.3.layers.3d") }.accessibilityLabel("Map appearance and air sample areas")
+                if model.activeRoute != nil {
+                    Button {
+                        model.followCamera.toggle()
+                    } label: {
+                        toolIcon(model.followCamera ? "location.north.line.fill" : "location.slash")
+                    }.accessibilityLabel(model.followCamera ? "3D camera follow active" : "Enable 3D camera follow")
+                }
                 Button(action: useLocation) { toolIcon("location.fill") }.accessibilityLabel("Recenter on my current location")
                 Button(action: expand) { toolIcon(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }.accessibilityLabel(expanded ? "Close full-screen map" : "Expand map")
-            }.padding(14)
+            }.padding(12)
         }
     }
+
     private var mapPlaces: [(offset: Int, element: NearbyPlace)] {
         let minimumSeparation = max(15, abs(region.span.longitudeDelta) * 111_320 * cos(region.center.latitude * .pi / 180) * 0.12)
-        return Array(discovery.places.enumerated()).reduce(into: []) { shown, candidate in
+        return Array(discovery.places.prefix(6).enumerated()).reduce(into: []) { shown, candidate in
             let location = CLLocation(latitude: candidate.element.coordinate.latitude, longitude: candidate.element.coordinate.longitude)
             if !shown.contains(where: {
                 location.distance(from: CLLocation(latitude: $0.element.coordinate.latitude, longitude: $0.element.coordinate.longitude)) < minimumSeparation
             }) { shown.append(candidate) }
         }
     }
+
     private func toolIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
-            .frame(width: 44, height: 44).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.6), lineWidth: 0.7))
+        Image(systemName: symbol).font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.ink)
+            .frame(width: 44, height: 44).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.6), lineWidth: 0.7))
+    }
+}
+
+/// Real-time animated runner/walker marker with directional heading cone and speed indicator.
+struct LiveRunnerPuck: View {
+    let heading: Double
+    let isRunning: Bool
+    let speedKmh: Double
+
+    var body: some View {
+        VStack(spacing: 3) {
+            if speedKmh > 0.3 {
+                Text(String(format: "%.1f km/h", speedKmh))
+                    .font(.system(size: 10, weight: .bold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(Palette.lime)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Palette.deep, in: Capsule())
+            }
+            ZStack {
+                Circle().fill(Color(hex: 0x16A085).opacity(0.24)).frame(width: 54, height: 54)
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x16A085))
+                    .offset(y: -22)
+                    .rotationEffect(.degrees(heading))
+                Circle().fill(Palette.deep).frame(width: 34, height: 34)
+                    .overlay(Circle().stroke(.white, lineWidth: 2.5))
+                    .shadow(color: .black.opacity(0.25), radius: 5, y: 2)
+                Image(systemName: isRunning ? "figure.run" : "figure.walk")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Palette.lime)
+            }
+        }
+        .accessibilityLabel(isRunning ? "Live runner position" : "Live walker position")
     }
 }
 
 struct AirMapLegend: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 14) { levels }
-                VStack(alignment: .leading, spacing: 6) { levels }
-            }
-            Text("OpenWeather overall AQI · 250 m illustrative sample circles. Grey means missing or stale. Circles are not pollution boundaries.")
-                .font(.caption2).foregroundStyle(Palette.muted)
+        (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))) {
+            legend("AQI 1–2", colour: Color(hex: 0x1D8348))
+            legend("AQI 3", colour: Color(hex: 0xB88320))
+            legend("AQI 4–5", colour: Color(hex: 0xB34C46))
         }.accessibilityElement(children: .combine)
     }
-    @ViewBuilder private var levels: some View {
-        legend("1–2", colour: Palette.forest); legend("3", colour: Color(hex: 0xB88320)); legend("4–5", colour: Color(hex: 0xB34C46)); legend("Unknown", colour: .gray)
-    }
     private func legend(_ label: String, colour: Color) -> some View {
-        HStack(spacing: 5) { Circle().fill(colour).frame(width: 8, height: 8); Text(label).font(.caption2.weight(.medium)).foregroundStyle(Palette.ink) }
+        HStack(spacing: 5) {
+            Circle().fill(colour).frame(width: 8, height: 8)
+            Text(label).font(.caption2.weight(.medium)).foregroundStyle(Palette.ink)
+        }
     }
 }

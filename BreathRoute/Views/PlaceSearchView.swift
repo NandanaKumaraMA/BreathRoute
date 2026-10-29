@@ -71,8 +71,9 @@ struct PlaceSearch: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Palette.forest)
                     TextField("Place, street or city", text: $query).focused($focused).submitLabel(.search).autocorrectionDisabled().onSubmit(submit)
+                        .frame(minHeight: 44).accessibilityLabel("Search for a place, street or city")
                     if !query.isEmpty {
-                        Button { query = ""; focused = true } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 32, height: 44) }.accessibilityLabel("Clear search")
+                        Button { query = ""; focused = true } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 44, height: 44) }.accessibilityLabel("Clear search")
                     }
                 }.padding(.horizontal, 16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20).padding(.vertical, 10).background(Palette.canvas)
             }
