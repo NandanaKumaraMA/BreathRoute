@@ -272,56 +272,22 @@ struct PlannerView: View {
             Picker("Extra-time budget for recommendations", selection: $model.extraMinutes) {
                 Text("5 min extra").tag(5.0); Text("10 min extra").tag(10.0); Text("20 min extra").tag(20.0)
             }.pickerStyle(.menu).font(.caption)
-            ForEach(Array(model.routes.enumerated()), id: \.element.id) { index, route in routeCard(route, index: index) }
-            InfoNote(text: "Dose assumes \(Int(model.intensity.ventilation * 1000)) L/min ventilation. Sample coverage does not establish street-level accuracy.")
-            if model.bestRouteID == nil && model.routes.count > 1 { InfoNote(text: "No distinct recommendation with complete recent samples inside your time budget. Review time, dose and coverage below.") }
+            ForEach(model.routes) { route in
+                RouteChoiceCard(route: route, routes: model.routes,
+                                ventilation: model.intensity.ventilation,
+                                selected: model.selectedRoute == route.id) {
+                    model.selectedRoute = route.id; showAir = true; showRouteDetails = true
+                }
+            }
+            if model.bestRouteID == nil && model.routes.count > 1 { InfoNote(text: "No clear winner within your extra-time budget. Open a route for details.") }
             if let notice = model.routeNotice { InfoNote(text: notice) }
             if !model.demo {
                 Button("Find an area-avoidance option") {
                     routeTask?.cancel(); routeTask = Task { await model.addAvoidanceOption() }
                 }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(model.busy)
-                InfoNote(text: "Excludes eligible fresh AQI 3–5 sample areas with openrouteservice, then checks and samples the returned path. Circles are approximate; a longer detour may increase dose.")
+                InfoNote(text: "Tries to route around areas with poorer air. A longer detour can increase exposure.")
             }
         }
-    }
-    private func routeCard(_ route: WalkRoute, index: Int) -> some View {
-        let selected = model.selectedRoute == route.id
-        let estimate = route.sampledEstimate(ventilation: model.intensity.ventilation)
-        return Button { model.selectedRoute = route.id; showAir = true; showRouteDetails = true } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    Text(String(format: "%02d", index + 1)).font(.system(.caption, design: .monospaced).weight(.semibold)).foregroundStyle(selected ? Palette.deep : Palette.muted).frame(width: 34, height: 34).background(selected ? Palette.lime : Palette.canvas, in: RoundedRectangle(cornerRadius: 11))
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(route.name.isEmpty ? "Walking route" : route.name).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
-                        if route.id == model.bestRouteID { Text("LOWEST ESTIMATED DOSE").font(.system(size: 8, weight: .bold, design: .monospaced)).tracking(0.6).foregroundStyle(Palette.forest) }
-                        else { Text(route.demo ? "Illustrative comparison" : "Walking route").font(.caption2).foregroundStyle(Palette.muted) }
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(Palette.forest)
-                }
-                HStack(spacing: 0) {
-                    routeMetric("\(Int(route.seconds / 60)) min", title: "time")
-                    routeMetric(String(format: "%.2f km", route.metres/1000), title: "distance")
-                    routeMetric(estimate.observedDose.map { String(format: "%.1f µg", $0) } ?? "—", title: estimate.isComplete ? "est. dose" : "partial dose")
-                }
-                HStack(spacing: 9) {
-                    Capsule().fill(Palette.line).frame(width: 50, height: 3).overlay(alignment: .leading) { Capsule().fill(Palette.forest).frame(width: 50 * estimate.coverage, height: 3) }
-                    Text("\(Int(estimate.coverage * 100))% sampled coverage").font(.caption2).foregroundStyle(Palette.muted)
-                    Spacer()
-                    if route.demo { Text("DEMO").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.muted) }
-                }
-                if !route.demo {
-                    Text(route.source).font(.caption2).foregroundStyle(Palette.muted)
-                    if route.avoidedAreaCount > 0 { Label("\(route.avoidedAreaCount) sample areas avoided · geometry checked", systemImage: "checkmark.shield").font(.caption2).foregroundStyle(Palette.forest) }
-                }
-                Label("View pollution coverage & alternatives", systemImage: "map").font(.caption.weight(.semibold)).foregroundStyle(Palette.forest)
-            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
-                .overlay(RoundedRectangle(cornerRadius: 22).stroke(selected ? Palette.forest : Palette.line, lineWidth: selected ? 1.5 : 0.7))
-        }.buttonStyle(PressStyle()).accessibilityAddTraits(selected ? .isSelected : [])
-    }
-    private func routeMetric(_ value: String, title: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) { Text(value).font(.system(.headline, design: .rounded)).foregroundStyle(Palette.ink).monospacedDigit(); Text(title).font(.caption2).foregroundStyle(Palette.muted) }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
     }
     private func activeCard(_ route: WalkRoute) -> some View {
         Surface {

@@ -16,9 +16,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		B6A0F1000000000000000006 /* AppInfo exception */ = {
+		B6A0F1000000000000000006 /* Exceptions for "BreathRoute" folder in "BreathRoute" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (AppInfo.plist, );
+			membershipExceptions = (
+				AppInfo.plist,
+			);
 			target = A24B7EBD3076093D00EC45AF /* BreathRoute */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -26,8 +28,10 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A24B7EC03076093D00EC45AF /* BreathRoute */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B6A0F1000000000000000006 /* Exceptions for "BreathRoute" folder in "BreathRoute" target */,
+			);
 			path = BreathRoute;
-			exceptions = (B6A0F1000000000000000006 /* AppInfo exception */, );
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
