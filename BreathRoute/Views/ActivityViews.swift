@@ -47,10 +47,10 @@ struct ActiveMotionCard: View {
             HStack {
                 SectionHeading(title: "iPhone motion")
                 Spacer()
-                StatusPill(title: demo ? "Demo" : model.motion.state.title, symbol: demo ? "sparkles" : model.motion.state.symbol)
+                StatusPill(title: demo ? "Preview" : model.motion.state.title, symbol: demo ? "sparkles" : model.motion.state.symbol)
             }
             if demo {
-                Text("Demo sessions do not read device motion sensors.").font(.caption).foregroundStyle(Palette.muted)
+                Text("This preview uses sample activity values.").font(.caption).foregroundStyle(Palette.muted)
             } else {
                 Toggle("Track steps during this walk", isOn: Binding(get: { model.motionTrackingEnabled }, set: { model.setMotionTracking($0) })).font(.subheadline)
                 if let summary = model.motion.summary {
@@ -120,12 +120,12 @@ struct MotionPreviewView: View {
     var body: some View {
         NavigationStack {
             Page {
-                PageHeader(title: "Motion preview.", subtitle: "Synthetic example", symbol: "figure.walk")
+                PageHeader(title: "Motion preview.", subtitle: "Activity preview", symbol: "figure.walk")
                 Surface {
-                    StatusPill(title: "Demo · synthetic activity", symbol: "sparkles")
+                    StatusPill(title: "Sample readings", symbol: "sparkles")
                     ActivityMetrics(summary: summary)
-                    Text(progressed ? "Simulated 30s walking (42 steps / 29 m), 20s stationary, and 10s unmonitored gap." : "Tap below to simulate a 60-second foreground activity window.").font(.caption).foregroundStyle(Palette.muted)
-                    PrimaryButton(title: progressed ? "Reset example" : "Run activity example", symbol: progressed ? "arrow.counterclockwise" : "play.fill") {
+                    Text(progressed ? "Preview includes 30s walking (42 steps / 29 m), 20s stationary and a 10s unobserved gap." : "Explore a minute of activity with sample readings.").font(.caption).foregroundStyle(Palette.muted)
+                    PrimaryButton(title: progressed ? "Reset preview" : "Play activity preview", symbol: progressed ? "arrow.counterclockwise" : "play.fill") {
                         timeline = MotionTimeline(start: Date(timeIntervalSince1970: 1000)); totals = PedometerTotals()
                         if !progressed {
                             let start = Date(timeIntervalSince1970: 1000)

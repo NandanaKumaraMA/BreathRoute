@@ -96,6 +96,38 @@
       },
       "walkRequirement": "demo == true",
       "isolation": "not queried as journal data"
+    },
+    "pushDevices/{sha256-token}": {
+      "access": "Admin SDK only; all client SDK reads and writes denied",
+      "required": {
+        "schemaVersion": "integer 1",
+        "uid": "authenticated owner UID",
+        "installationID": "UUID",
+        "token": "private FCM delivery token",
+        "enabled": "boolean true",
+        "updatedAtMs": "server millisecond timestamp"
+      },
+      "additionalFields": false
+    },
+    "pushDeliveryState/{hash}": {
+      "access": "Admin SDK only; all client SDK reads and writes denied",
+      "optional": {
+        "testAtMs": "millisecond timestamp",
+        "journalAtMs": "millisecond timestamp",
+        "eventID": "last handled trigger event ID"
+      }
+    },
+    "users/{uid}/pushDevices/{installationUUID}": {
+      "access": "authenticated owner only; separate push opt-in, excluded from journal sync",
+      "required": {
+        "schemaVersion": "integer 1",
+        "uid": "same UID as authenticated owner path",
+        "installationID": "UUID matching document ID",
+        "token": "private FCM token, 20..4096 bytes",
+        "enabled": "boolean true",
+        "updatedAt": "server timestamp"
+      },
+      "additionalFields": false
     }
   },
   "excluded": [

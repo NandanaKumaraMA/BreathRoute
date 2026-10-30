@@ -97,8 +97,14 @@ final class AccountService {
     }
     func signOut() {
         guard !working, let auth else { return }
-        message = nil
-        do { try auth.signOut(); GIDSignIn.sharedInstance.signOut() } catch { message = Self.explain(error) }
+        message = nil; working = true
+        Task {
+            defer { working = false }
+            FreeNotificationService.shared.prepareForSignOut()
+            if FirebaseBootstrap.environment == .firebase { await RemotePushService.shared.prepareForSignOut() }
+            do { try auth.signOut(); GIDSignIn.sharedInstance.signOut() }
+            catch { FreeNotificationService.shared.setAccount(identity); message = Self.explain(error) }
+        }
     }
     func verifyEmail() async {
         guard !working, let user = auth?.currentUser else { return }

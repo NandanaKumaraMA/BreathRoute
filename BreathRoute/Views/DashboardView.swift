@@ -75,7 +75,7 @@ struct DashboardView: View {
                 Button(model.location.hasAuthorization ? "Use my current location" : "Enable location") { model.location.request() }
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.lime).frame(minHeight: 44)
             }
-            Button { model.section = .routes } label: {
+            Button { model.openWalkPlanner() } label: {
                 HStack {
                     if !typeSize.isAccessibilitySize { Image(systemName: "figure.walk").accessibilityHidden(true) }
                     Text(model.activeRoute == nil ? "Plan a walk" : "Return to your walk")

@@ -56,7 +56,7 @@ struct RecordedPathView: View {
                 }
                 InfoNote(text: "Breaks in the blue line are unobserved intervals. Replay advances recorded fixes at an accelerated rate; it does not reconstruct movement between them. GPS coordinates stay in this device’s journal and are excluded from the shared summary.")
             } else {
-                InfoNote(text: demo ? "This is a synthetic planned route. Demo sessions record no actual GPS fixes." : "No GPS path was recorded. Earlier saved walks still retain their summary.")
+                InfoNote(text: demo ? "This preview contains a planned path. No device GPS path was recorded." : "No GPS path was recorded. Earlier saved walks still retain their summary.")
             }
         }.onAppear { pointCount = points.count; fit() }
             .onDisappear { stopReplay() }
@@ -95,7 +95,7 @@ struct RecoveryCard: View {
         if let draft = model.pendingRecovery {
             Surface {
                 Label("An unfinished walk is saved", systemImage: "arrow.counterclockwise.circle.fill").font(.headline).foregroundStyle(Palette.forest)
-                Text(draft.route.demo ? "Demo · \(draft.route.name)" : draft.destination).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink)
+                Text(draft.route.demo ? draft.route.name : draft.destination).font(.title3.weight(.semibold)).foregroundStyle(Palette.ink)
                 Text("Last saved \(draft.savedAt.formatted(date: .abbreviated, time: .shortened)) · \(Int(draft.recorder.metres)) m recorded · \(draft.recorder.path.count) GPS fixes")
                     .font(.caption).foregroundStyle(Palette.muted)
                 InfoNote(text: "The app was closed before this walk finished. Resume keeps recorded portions and starts a new path section. Time while the app was closed remains unobserved.")
@@ -134,7 +134,7 @@ private struct SavedRoutePreview: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Separate simulator preview").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                Text("Route preview").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                 Spacer(minLength: 8)
                 Button("Done") { previewModel?.closeIsolatedPreview(); dismiss() }.font(.headline).frame(minHeight: 44)
             }.padding(.horizontal, 22).background(Palette.canvas)

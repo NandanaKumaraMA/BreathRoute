@@ -30,6 +30,9 @@ service cloud.firestore {
         && d.notes is string && d.notes.size() <= 48000 && uuid(d.journalRevision)
         && optionalUUID(d, 'tripID') && optionalUUID(d, 'conflictCopyOf');
     }
+    // Device tokens and rate limits are accessible only to trusted Cloud Functions.
+    match /pushDevices/{id} { allow read, write: if false; }
+    match /pushDeliveryState/{id} { allow read, write: if false; }
     match /users/{uid} {
       allow get: if owner(uid);
       allow create, update: if owner(uid)
@@ -41,6 +44,17 @@ service cloud.firestore {
         && request.resource.data.symptomCount is int && request.resource.data.symptomCount >= 0 && request.resource.data.symptomCount <= 500
         && request.resource.data.walkCount + request.resource.data.symptomCount <= 500
         && request.resource.data.updatedAt == request.time && revision(uid, request.resource.data.journalRevision);
+      // Spark-compatible device registration: one private document per installation.
+      match /pushDevices/{id} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid)
+          && request.resource.data.keys().hasAll(['schemaVersion','uid','installationID','token','enabled','updatedAt'])
+          && request.resource.data.keys().hasOnly(['schemaVersion','uid','installationID','token','enabled','updatedAt'])
+          && request.resource.data.schemaVersion == 1 && request.resource.data.uid == uid
+          && uuid(id) && request.resource.data.installationID == id
+          && request.resource.data.token is string && request.resource.data.token.size() >= 20 && request.resource.data.token.size() <= 4096
+          && request.resource.data.enabled == true && request.resource.data.updatedAt == request.time;
+      }
       match /journal/current {
         function validSnapshot() {
           let d = request.resource.data;

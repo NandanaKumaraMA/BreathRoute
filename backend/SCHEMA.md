@@ -32,3 +32,14 @@ Profiles/preferences merge independently of journal entries. Competing settings 
 Journal → Explore a demo journal opens a separate read-only viewer with walking-distance and symptom-count charts, 7/30-example-day filters, coverage counts, notes and walk details. Bundled examples are available offline and labelled as such. A signed-in user can explicitly load cloud examples. Server-only reads validate document IDs, allowed fields, synthetic markers, counts and links. A before/after manifest comparison rejects mixed reads during replacement. Account checks reject obsolete identities; closing the viewer cancels the load. Viewing never seeds or uploads records.
 
 The explicit Debug `--structured-cloud-qa` workflow is restricted to the local Auth/Firestore emulators and the `demo-breatheroute` project. It verifies migration, typed records, projection completion, demo isolation and idempotency. It cannot run against the production database. The separate `--synthetic-live-journal-qa` verifier requires the previously authorised signed-in QA account and performs a read-only server restore into an isolated in-memory local store.
+
+## Private notification delivery metadata
+
+Remote notifications use separate, server-managed collections. The default Spark configuration stores `users/{uid}/pushDevices/{installationUUID}` with owner-only client access and a separate in-app opt-in. Token fields are type/identity/timestamp validated. The optional Functions configuration uses the admin-only paths below. These are outside the journal snapshot, sync counts, example records and export data.
+
+| Path | Purpose | Access |
+| --- | --- | --- |
+| `pushDevices/{sha256-token}` | Schema version, current owner UID, installation UUID, private FCM token, enabled flag and last registration time in milliseconds | Cloud Functions Admin SDK only |
+| `pushDeliveryState/{hash}` | Connection-test/journal alert cooldown times and the last handled event ID | Cloud Functions Admin SDK only |
+
+In Functions mode, a token maps to one server-side owner. In Spark mode, each owner/installation has one private current record; client account-switch cleanup invalidates the old FCM token before another account can reconnect. Opt-out/sign-out revoke the mapping when reachable and invalidate the local token. Delivery excludes registrations stale for 30 days. Notification content is generic; GPS, symptoms, Health data and the canonical journal payload are never copied into it. See [remote notification setup](PUSH_SETUP.md) for deployment and verification.

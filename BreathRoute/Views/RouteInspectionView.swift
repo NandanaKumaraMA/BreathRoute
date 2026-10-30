@@ -210,7 +210,7 @@ struct RouteInspectionView: View {
             }
             ProgressView(value: estimate.coverage).tint(Palette.forest)
             Text("Circles show approximate sample areas, not measured pollution boundaries. Colours use the nearest sample.").font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-            Text(route.source).font(.caption2).foregroundStyle(Palette.muted)
+            Text(route.sourceLabel).font(.caption2).foregroundStyle(Palette.muted)
             Toggle("Show sample circles on map", isOn: $showAir).font(.subheadline)
             if model.activeRoute == nil {
                 Divider()

@@ -61,3 +61,20 @@ private func sessionRoute() -> SavedRoute {
     var futureVersion = decoded; futureVersion.version = 2
     #expect(!futureVersion.isValid)
 }
+
+@Test func reroutedCheckpointKeepsCumulativeAndRemainingProgressSeparate() throws {
+    var recorder = WalkRecorder()
+    recorder.record(coordinate: recordingPoint, date: recordingStart, accuracy: 5, metresFromPrevious: nil, pm25: 10)
+    recorder.record(coordinate: recordingPoint, date: recordingStart.addingTimeInterval(10), accuracy: 5, metresFromPrevious: 12, pm25: 10)
+    var checkpoint = ActiveWalkCheckpoint(sessionID: UUID(), startedAt: recordingStart, savedAt: recordingStart.addingTimeInterval(10),
+        destination: "Rerouted example", route: sessionRoute(), recorder: recorder, ventilation: 0.015, activity: nil, recovered: false,
+        previewMetres: 0, previewMovingSeconds: 10, routeStartRecordedMetres: 12)
+    let decoded = try JSONDecoder().decode(ActiveWalkCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+    #expect(decoded.isValid && decoded.recorder.metres == 12 && decoded.previewMetres == 0 && decoded.routeStartRecordedMetres == 12)
+    checkpoint.routeStartRecordedMetres = 13
+    #expect(!checkpoint.isValid)
+    var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+    for key in ["previewMetres", "previewMovingSeconds", "routeStartRecordedMetres"] { legacy.removeValue(forKey: key) }
+    let old = try JSONDecoder().decode(ActiveWalkCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(old.isValid && old.previewMetres == nil && old.routeStartRecordedMetres == nil)
+}

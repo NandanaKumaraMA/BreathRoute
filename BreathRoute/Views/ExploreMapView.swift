@@ -26,7 +26,11 @@ struct ExploreMapView: View {
     var expanded = false
     let select: (NearbyPlace) -> Void
     let inspectRoute: (WalkRoute) -> Void
-    let cameraChanged: (MKCoordinateRegion) -> Void
+    let cameraChanged: (MKCoordinateRegion, MapCamera) -> Void
+    let zoomIn: () -> Void
+    let zoomOut: () -> Void
+    var canZoomIn = true
+    var canZoomOut = true
     let useLocation: () -> Void
     let expand: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -45,6 +49,13 @@ struct ExploreMapView: View {
                 }
             }
             RouteComparisonLayers(routes: model.routes, selectedID: model.selectedRoute, showAir: showAir, showRouteLabels: !typeSize.isAccessibilitySize, allowSelection: model.activeRoute == nil, select: inspectRoute)
+            if showAir && model.geofences.enabled {
+                ForEach(model.geofences.areas) { area in
+                    MapCircle(center: .init(latitude: area.latitude, longitude: area.longitude), radius: area.radius)
+                        .foregroundStyle(Color.orange.opacity(0.08))
+                        .stroke(Color.orange.opacity(0.85), style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
+                }
+            }
             RecordedPathLayers(points: model.recordedPath)
             ForEach(model.remainingOptions) { route in
                 MapPolyline(route.polyline).stroke(
@@ -53,7 +64,7 @@ struct ExploreMapView: View {
                 )
             }
             if let active = model.activeRoute, let liveLocation = model.location.location ?? model.recordedPath.last.map({ CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }) {
-                Annotation(active.demo ? "Synthetic preview walker" : "Your location", coordinate: liveLocation.coordinate) {
+                Annotation(active.demo ? "Walk preview location" : "Your location", coordinate: liveLocation.coordinate) {
                     LiveRunnerPuck(heading: model.location.headingDegrees, isRunning: model.isRunningLive, speedKmh: model.liveSpeedKmh, preview: active.demo)
                 }.annotationTitles(.hidden)
             }
@@ -90,25 +101,37 @@ struct ExploreMapView: View {
             MapScaleView(scope: mapScope)
         }
         .mapScope(mapScope)
-        .onMapCameraChange(frequency: .onEnd) { context in cameraChanged(context.region) }
+        .onMapCameraChange(frequency: .onEnd) { context in cameraChanged(context.region, context.camera) }
         .accessibilityLabel("Walking route map. Choose a destination above, or select a nearby place.")
         .overlay(alignment: .bottomTrailing) {
-            VStack(spacing: 8) {
-                Menu {
-                    Picker("Map style", selection: $style) { ForEach(ExploreMapStyle.allCases) { Text($0.rawValue).tag($0) } }
-                    Toggle("3D terrain & buildings", isOn: $elevated)
-                    Toggle("3D navigation pitch", isOn: $model.pitch3D)
-                    Toggle("Air sample circles", isOn: $showAir)
-                } label: { toolIcon("square.3.layers.3d") }.accessibilityLabel("Map appearance and air sample areas")
-                if model.activeRoute != nil {
-                    Button {
-                        model.followCamera.toggle()
-                    } label: {
-                        toolIcon(model.followCamera ? "location.north.line.fill" : "location.slash")
-                    }.accessibilityLabel(model.followCamera ? "Stop following the walker" : "Follow the walker")
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(spacing: 8) {
+                    Button(action: zoomIn) { toolIcon("plus") }
+                        .accessibilityLabel("Zoom in")
+                        .accessibilityHint("Show more map detail. Keeps camera follow on if enabled.")
+                        .disabled(!canZoomIn).opacity(canZoomIn ? 1 : 0.4)
+                    Button(action: zoomOut) { toolIcon("minus") }
+                        .accessibilityLabel("Zoom out")
+                        .accessibilityHint("Show a wider area. Keeps camera follow on if enabled.")
+                        .disabled(!canZoomOut).opacity(canZoomOut ? 1 : 0.4)
                 }
-                Button(action: useLocation) { toolIcon("location.fill") }.accessibilityLabel("Recenter on my current location")
-                Button(action: expand) { toolIcon(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }.accessibilityLabel(expanded ? "Close full-screen map" : "Expand map")
+                VStack(spacing: 8) {
+                    Menu {
+                        Picker("Map style", selection: $style) { ForEach(ExploreMapStyle.allCases) { Text($0.rawValue).tag($0) } }
+                        Toggle("3D terrain & buildings", isOn: $elevated)
+                        Toggle("3D navigation pitch", isOn: $model.pitch3D)
+                        Toggle("Air sample circles", isOn: $showAir)
+                    } label: { toolIcon("square.3.layers.3d") }.accessibilityLabel("Map appearance and air sample areas")
+                    if model.activeRoute != nil {
+                        Button {
+                            model.followCamera.toggle()
+                        } label: {
+                            toolIcon(model.followCamera ? "location.north.line.fill" : "location.slash")
+                        }.accessibilityLabel(model.followCamera ? "Stop following the walker" : "Follow the walker")
+                    }
+                    Button(action: useLocation) { toolIcon("location.fill") }.accessibilityLabel("Recenter on my current location")
+                    Button(action: expand) { toolIcon(expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }.accessibilityLabel(expanded ? "Close full-screen map" : "Expand map")
+                }
             }.padding(12)
         }
     }
@@ -161,7 +184,7 @@ struct LiveRunnerPuck: View {
                     .foregroundStyle(Palette.lime)
             }
         }
-        .accessibilityLabel(preview ? "Synthetic preview walker position" : (isRunning ? "Runner position" : "Walker position"))
+        .accessibilityLabel(preview ? "Walk preview position" : (isRunning ? "Runner position" : "Walker position"))
     }
 }
 

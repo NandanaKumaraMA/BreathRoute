@@ -37,7 +37,7 @@ struct ForecastEntryView: View {
                         PrimaryButton(title: "Open Explore", symbol: "map") { model.section = .routes; dismiss() }
                         if model.pendingRecovery == nil && !model.unreadableRecovery && model.activeRoute == nil {
                             Button("Preview with an example path") { model.loadDemo() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                            InfoNote(symbol: "sparkles", text: "The example opens clearly labelled synthetic forecasts. No API or sensors are used until you explicitly load provider forecasts.")
+                            InfoNote(symbol: "sparkles", text: "Preview sample forecasts, or load current forecasts from OpenWeather.")
                         }
                     }
                 }.navigationTitle("When to walk").navigationBarTitleDisplayMode(.inline)
@@ -119,10 +119,10 @@ struct ForecastPlanningView: View {
     }
     private var routeCard: some View {
         Surface {
-            SectionHeading(title: route.name.isEmpty ? "Selected walking path" : route.name, detail: route.demo ? "Illustrative path" : "Selected path")
+            SectionHeading(title: route.name.isEmpty ? "Selected walking path" : route.name, detail: route.demo ? "Preview route" : "Selected path")
             HStack { Metric(title: "Walking time", value: "\(Int(route.seconds / 60)) min"); Metric(title: "Distance", value: String(format: "%.2f km", route.metres / 1000)) }
             Text("\(points.count) retained sample points · \(Int(model.intensity.ventilation * 1000)) L/min assumed ventilation").font(.caption).foregroundStyle(Palette.muted)
-            if route.demo { InfoNote(symbol: "sparkles", text: "The path and travel time are illustrative. Loading real provider forecasts here does not establish walking access for this example path.") }
+            if route.demo { InfoNote(symbol: "sparkles", text: "This is a sample route and travel time. Provider forecasts do not confirm walking access for the route.") }
         }
     }
     private var controls: some View {
@@ -144,7 +144,7 @@ struct ForecastPlanningView: View {
                     .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
             }.disabled(loading || points.isEmpty)
             if route.demo {
-                Button(usingExample ? "Reset synthetic forecast example" : "Use synthetic forecast example") { cancelLoad(); loadExample() }
+                Button(usingExample ? "Reset sample forecast" : "Use sample forecast") { cancelLoad(); loadExample() }
                     .font(.caption).frame(minHeight: 44).disabled(loading)
             }
         }
@@ -162,7 +162,7 @@ struct ForecastPlanningView: View {
     private func adviceCard(_ options: [DepartureEstimate]) -> some View {
         let complete = options.filter { $0.estimate.isComplete }.count
         return Surface {
-            HStack { StatusPill(title: usingExample ? "Synthetic forecast example" : "OpenWeather forecasts", symbol: usingExample ? "sparkles" : "cloud.sun"); Spacer() }
+            HStack { StatusPill(title: usingExample ? "Sample forecast" : "OpenWeather forecasts", symbol: usingExample ? "sparkles" : "cloud.sun"); Spacer() }
             switch DepartureForecastCalculator.advice(options) {
             case .insufficient:
                 Text("More complete data is needed.").font(.title3.weight(.semibold)).foregroundStyle(Palette.ink)
@@ -222,7 +222,7 @@ struct ForecastPlanningView: View {
                     Label(reminding ? "Saving reminder…" : "Remind me at this departure", systemImage: "bell.badge")
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                 }.disabled(usingExample || reminding || chosen.departure.timeIntervalSince(now) < 60 || !chosen.estimate.isComplete)
-                Text(usingExample ? "Synthetic forecasts cannot schedule reminders." : "Choose a fully covered future option. This schedules one local reminder; it does not monitor changing forecasts or start recording.")
+                Text(usingExample ? "Load provider forecasts to schedule a reminder." : "Choose a fully covered future option. This schedules one local reminder; it does not monitor changing forecasts or start recording.")
                     .font(.caption).foregroundStyle(Palette.muted)
             } else if !options.isEmpty {
                 Text("Select a future departure above to plan its reminder.").font(.caption).foregroundStyle(Palette.muted)

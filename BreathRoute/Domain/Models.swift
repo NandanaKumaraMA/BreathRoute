@@ -40,6 +40,14 @@ struct WalkRoute: Identifiable {
     var excludedAreas: [WatchArea] = []
     var steps: [RouteStep] = []
 
+    var sourceLabel: String { source == "Illustrative demo" ? "Sample route" : source }
+
+    var asPreview: WalkRoute {
+        WalkRoute(name: name, coordinates: coordinates, metres: metres, seconds: seconds, estimate: estimate,
+                  demo: true, airSamples: airSamples, source: source, avoidedAreaCount: avoidedAreaCount,
+                  excludedAreas: excludedAreas, steps: steps)
+    }
+
     var polyline: MKPolyline { MKPolyline(coordinates: coordinates, count: coordinates.count) }
 
     /// True when every sampled interval has Good/Fair air (AQI 1–2, PM2.5 <= 18 µg/m³).

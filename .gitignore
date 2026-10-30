@@ -13,3 +13,8 @@ GoogleSignIn.local.xcconfig
 backend/node_modules/
 backend/ui-debug.log
 firestore-debug.log
+
+backend/functions/node_modules/
+
+*.p8
+**/*firebase-adminsdk*.json

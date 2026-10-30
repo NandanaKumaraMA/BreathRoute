@@ -1,66 +1,92 @@
 import SwiftUI
 
+/// The awareness controls belong to the planned walk, rather than separate tool screens.
 struct WalkAwarenessView: View {
     @Bindable var model: AppModel
-    var tool: WalkTool? = nil
-    @State private var enabling = false
-    @State private var requestAvoidance = true
+    @State private var requestingNotifications = false
+    private var active: Bool { model.activeRoute != nil }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if tool == nil || tool == .geofencing {
-            Surface {
-                Label("Geofencing · area alerts", systemImage: "location.circle").font(.headline).foregroundStyle(Palette.ink)
-                Text("Optional entry awareness for fresh AQI 3–5 samples. Monitoring areas use a 250 m app-defined radius; they are not measured pollution boundaries.").font(.caption).foregroundStyle(Palette.muted)
-                Text(model.geofences.message).font(.caption).foregroundStyle(Palette.muted)
-                if model.geofences.enabled {
-                    Button("Turn off area alerts") { model.geofences.stop() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                    if !model.geofences.hasAlwaysAccess && !model.geofences.areas.isEmpty {
-                        Button("Allow native region awareness") { model.geofences.requestBackgroundAwareness() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                        Text("Requests Always location access. Region delivery can be delayed or unavailable. This does not enable background walk recording or session recovery.").font(.caption2).foregroundStyle(Palette.muted)
+        VStack(alignment: .leading, spacing: 12) {
+            Surface(padding: 16) {
+                Label(active ? "Walk monitoring is on" : "Included in your walk", systemImage: "location.shield")
+                    .font(.headline).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+                Label(active ? "Air coverage shown on your map" : "Air samples and route comparison", systemImage: "aqi.medium")
+                    .font(.subheadline).foregroundStyle(Palette.forest)
+                Label(active ? "Geofencing · \(model.geofences.areas.count) monitored areas" : "Geofencing starts with your walk", systemImage: "location.circle")
+                    .font(.subheadline).foregroundStyle(Palette.ink)
+                Text(active ? model.geofences.message : "\(model.plannedWatchAreaCount) fresh higher-AQI areas on this path. Area entries and route departures will trigger a comparison automatically.")
+                    .font(.caption).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                if active {
+                    Label(model.automaticRouteChecks ? "Automatic reroute suggestions on" : "Automatic reroute suggestions paused", systemImage: "arrow.triangle.branch")
+                        .font(.subheadline).foregroundStyle(Palette.ink)
+                    Text(model.routeCheckMessage).font(.caption).foregroundStyle(Palette.muted)
+                    if let area = model.geofences.entry {
+                        Divider()
+                        Label("Inside a higher-AQI sample area", systemImage: "wind").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                        Text("AQI \(area.aqi)/5 · PM2.5 \(area.pm25.formatted(.number.precision(.fractionLength(1)))) µg/m³. Sampled \(area.sampledAt.formatted(date: .omitted, time: .shortened)).")
+                            .font(.caption).foregroundStyle(Palette.muted)
                     }
-                } else {
-                    Button(enabling ? "Enabling…" : "Enable area-entry alerts") {
-                        enabling = true
-                        Task { await model.geofences.enable(samples: model.watchSamples); enabling = false; if let location = model.location.currentLocation { model.geofences.evaluate(location) } }
-                    }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).disabled(enabling)
+                    if model.remainingBusy { ProgressView("Comparing remaining paths and air samples…").font(.caption) }
+                    else if model.remainingOptions.isEmpty {
+                        Button("Compare routes from here", systemImage: "arrow.triangle.branch") { model.compareRemaining(avoidAreas: true) }
+                            .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    }
                 }
-                if let area = model.geofences.entry, let time = model.geofences.entryTime {
-                    Divider()
-                    Label("Inside a sampled area", systemImage: "wind").font(.subheadline.weight(.semibold))
-                    Text("PM2.5 \(String(format: "%.1f", area.pm25)) µg/m³ · overall AQI \(area.aqi)/5. Sample \(area.sampledAt.formatted(date: .omitted, time: .shortened)); entry \(time.formatted(date: .omitted, time: .shortened)).").font(.caption).foregroundStyle(Palette.muted)
-                    Button("Dismiss area message") { model.geofences.clearEntry() }.font(.caption).frame(minHeight: 44)
-                }
-            }
-            }
-            if tool == nil || tool == .rerouting {
-            Surface {
-                SectionHeading(title: "Rerouting · compare from here")
-                Text("Request fresh options for the remaining journey. Choosing a new route preserves the time, distance and exposure already recorded.").font(.caption).foregroundStyle(Palette.muted)
-                Picker("Extra-time budget", selection: $model.extraMinutes) {
-                    Text("5 min").tag(5.0); Text("10 min").tag(10.0); Text("20 min").tag(20.0)
-                }.pickerStyle(.segmented)
-                Toggle("Request an area-avoidance option", isOn: $requestAvoidance).font(.caption)
-                Text("Avoidance requires openrouteservice. Areas containing your start or destination are omitted. A detour can increase estimated dose.").font(.caption2).foregroundStyle(Palette.muted)
-                PrimaryButton(title: model.remainingBusy ? "Comparing remaining routes…" : "Compare remaining walk", symbol: "arrow.triangle.branch") { model.compareRemaining(avoidAreas: requestAvoidance) }.disabled(model.remainingBusy)
-                if model.remainingBusy { ProgressView("Routes and new air samples…").font(.caption) }
+                DisclosureGroup("Walk preferences") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Automatic reroute suggestions", isOn: $model.automaticRouteChecks).font(.subheadline)
+                        Text("Compare after entering a sampled area or leaving the path. You choose whether to switch.").font(.caption).foregroundStyle(Palette.muted)
+                        Text("Extra walking time").font(.caption.weight(.semibold))
+                        Picker("Extra-time budget", selection: $model.extraMinutes) {
+                            Text("5 min").tag(5.0); Text("10 min").tag(10.0); Text("20 min").tag(20.0)
+                        }.pickerStyle(.segmented)
+                        if active && model.activeRoute?.demo == false {
+                            if !model.geofences.notificationAllowed {
+                                Button(requestingNotifications ? "Requesting…" : "Allow area notifications") {
+                                    requestingNotifications = true
+                                    Task { await model.geofences.requestNotifications(); requestingNotifications = false }
+                                }.frame(minHeight: 44).disabled(requestingNotifications)
+                            }
+                            if !model.geofences.hasAlwaysAccess {
+                                Button("Allow background area awareness") { model.geofences.requestBackgroundAwareness() }.frame(minHeight: 44)
+                                Text("Optional Always location permission for native region events. Background walk recording is not enabled.").font(.caption2).foregroundStyle(Palette.muted)
+                            }
+                        }
+                        Text("Circles are approximate 250 m sample areas, not measured pollution boundaries. Missing or expired readings remain unknown.")
+                            .font(.caption2).foregroundStyle(Palette.muted)
+                    }.padding(.top, 12)
+                }.font(.subheadline.weight(.medium))
             }
             if let notice = model.remainingNotice { InfoNote(text: notice) }
-            ForEach(model.remainingOptions) { route in
-                Surface {
-                    HStack { Text(route.name).font(.headline).foregroundStyle(Palette.ink); Spacer(); if route.id.uuidString == model.bestRemainingRouteID { StatusPill(title: "Lower estimated dose", symbol: "wind") } }
-                    HStack { Metric(title: "Remaining time", value: "\(Int(route.seconds / 60)) min"); Metric(title: "Distance", value: String(format: "%.2f km", route.metres / 1000)); Metric(title: route.estimate.isComplete ? "Estimated dose" : "Partial dose", value: doseText(route.estimate.observedDose)) }
-                    Text("\(Int(route.estimate.coverage * 100))% sampled coverage · \(route.source)").font(.caption2).foregroundStyle(Palette.muted)
-                    if route.avoidedAreaCount > 0 { Text("Returned geometry checked against \(route.avoidedAreaCount) excluded sample areas.").font(.caption).foregroundStyle(Palette.forest) }
-                    if let fastest = model.remainingOptions.map(\.seconds).min(), route.seconds > fastest + model.extraMinutes * 60 {
-                        Text("Exceeds your extra-time budget.").font(.caption).foregroundStyle(Palette.muted)
-                    }
-                    Button("Switch remaining route") { model.switchRemaining(to: route) }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
-                }
-            }
             if !model.remainingOptions.isEmpty {
-                InfoNote(text: model.bestRemainingRouteID == nil ? "No distinct lower-dose recommendation with comparable complete data inside your time budget. Review the available options." : "Recommendation compares complete sampled estimates inside your extra-time budget. The difference may reflect duration, not cleaner streets. No route is guaranteed safe.")
-            }
+                SectionHeading(title: "Choose your remaining path")
+                ForEach(model.remainingOptions) { route in
+                    Surface(padding: 16) {
+                        Text(route.name).font(.headline).foregroundStyle(Palette.ink)
+                        if route.id.uuidString == model.bestRemainingRouteID { StatusPill(title: "Lower estimated dose", symbol: "wind") }
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 16) { metrics(route) }
+                            VStack(alignment: .leading, spacing: 10) { metrics(route) }
+                        }
+                        Text("\(Int(route.estimate.coverage * 100))% sampled coverage · \(route.sourceLabel)").font(.caption).foregroundStyle(Palette.muted)
+                        if let fastest = model.remainingOptions.map(\.seconds).min(), route.seconds > fastest + model.extraMinutes * 60 {
+                            Text("Exceeds your extra-time budget.").font(.caption).foregroundStyle(Palette.muted)
+                        }
+                        if route.avoidedAreaCount > 0 && !route.excludedAreas.isEmpty {
+                            Text("Path checked against \(route.avoidedAreaCount) excluded sample areas.").font(.caption).foregroundStyle(Palette.forest)
+                        }
+                        PrimaryButton(title: "Use this remaining path", symbol: "arrow.triangle.turn.up.right.diamond") { model.switchRemaining(to: route) }
+                    }
+                }
+                Button("Keep my current path") { model.dismissRemainingOptions() }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                Text("Recommendations require comparable complete samples within your time budget. A detour can increase exposure; no route is guaranteed safe.")
+                    .font(.caption2).foregroundStyle(Palette.muted)
             }
         }
+    }
+    @ViewBuilder private func metrics(_ route: WalkRoute) -> some View {
+        Metric(title: "Remaining", value: "\(Int(route.seconds / 60)) min")
+        Metric(title: "Distance", value: String(format: "%.2f km", route.metres / 1000))
+        Metric(title: route.estimate.isComplete ? "Est. dose" : "Partial dose", value: doseText(route.estimate.observedDose))
     }
 }

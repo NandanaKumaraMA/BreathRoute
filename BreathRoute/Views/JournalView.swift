@@ -57,7 +57,7 @@ struct JournalView: View {
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                     .padding(18).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 18))
             }.buttonStyle(PressStyle())
-            Button("Explore a demo journal", systemImage: "sparkles") { showDemoJournal = true }
+            Button("Explore a sample journal", systemImage: "sparkles") { showDemoJournal = true }
                 .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }
         .adaptiveNavigationBar()
@@ -122,11 +122,11 @@ struct JournalView: View {
                 Image(systemName: "figure.walk").font(.headline).foregroundStyle(Palette.forest)
                     .frame(width: 42, height: 42).background(Palette.forest.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(trip.destination).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                    Text(trip.displayDestination).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
                     Text("\(trip.date.formatted(.dateTime.hour().minute())) · \(Int(trip.metres)) m · \(doseText(trip.dose))").font(.caption).foregroundStyle(Palette.muted)
                 }
                 Spacer(minLength: 4)
-                StatusPill(title: trip.demo ? "Demo" : "\(Int(trip.coverage * 100))%", symbol: trip.demo ? "sparkles" : nil)
+                StatusPill(title: trip.demo ? "Preview" : "\(Int(trip.coverage * 100))%", symbol: trip.demo ? "sparkles" : nil)
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Palette.muted)
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.line, lineWidth: 0.7))
         }.buttonStyle(PressStyle())
@@ -164,10 +164,10 @@ struct TripDetailView: View {
 
     var body: some View {
         Page {
-            PageHeader(title: trip.destination, subtitle: trip.date.formatted(date: .abbreviated, time: .shortened), symbol: "figure.walk")
+            PageHeader(title: trip.displayDestination, subtitle: trip.date.formatted(date: .abbreviated, time: .shortened), symbol: "figure.walk")
             Surface {
                 HStack {
-                    StatusPill(title: trip.demo ? "Demo session" : "\(Int(trip.coverage * 100))% time coverage", symbol: trip.demo ? "sparkles" : "chart.bar.fill")
+                    StatusPill(title: trip.demo ? "Preview" : "\(Int(trip.coverage * 100))% time coverage", symbol: trip.demo ? "sparkles" : "chart.bar.fill")
                     Spacer()
                     if trip.recovered == true { StatusPill(title: "Recovered", symbol: "arrow.counterclockwise") }
                 }
@@ -195,7 +195,7 @@ struct TripDetailView: View {
                 }
             }
             HStack(spacing: 12) {
-                ShareLink(item: "BreatheRoute: \(trip.destination). Distance \(Int(trip.metres)) m. Est. dose \(doseText(trip.dose)). Coverage \(Int(trip.coverage * 100))%.") {
+                ShareLink(item: "BreatheRoute\(trip.demo ? " preview" : ""): \(trip.displayDestination). Distance \(Int(trip.metres)) m. Est. dose \(doseText(trip.dose)). Coverage \(Int(trip.coverage * 100))%.") {
                     Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(12)
                 }.buttonStyle(.bordered)
                 Button("Delete walk", role: .destructive) { deleting = true }.buttonStyle(.bordered)
@@ -235,7 +235,7 @@ struct SymptomEditor: View {
                     if !model.trips.isEmpty {
                         Picker("Link a walk", selection: $entry.tripID) {
                             Text("No linked walk").tag(Optional<UUID>.none)
-                            ForEach(model.trips) { trip in Text(trip.destination).tag(Optional(trip.id)) }
+                            ForEach(model.trips) { trip in Text(trip.displayDestination).tag(Optional(trip.id)) }
                         }.font(.subheadline)
                     }
                 }

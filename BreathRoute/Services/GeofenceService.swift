@@ -16,34 +16,41 @@ final class GeofenceService: NSObject, CLLocationManagerDelegate {
     private(set) var entry: WatchArea?
     private(set) var entryTime: Date?
     private(set) var notificationAllowed = false
+    private(set) var simulated = false
+    var onEntry: ((WatchArea) -> Void)?
     var hasAlwaysAccess: Bool { manager.authorizationStatus == .authorizedAlways }
     override init() {
         super.init(); manager.delegate = self; manager.desiredAccuracy = kCLLocationAccuracyBest
-        // The current app does not recover active sessions after relaunch. Remove their obsolete registrations.
+        // Recovered walks explicitly register only their still-fresh samples.
         removeRegions()
     }
-    func enable(samples: [WatchArea]) async {
-        stop(); let ticket = generation; enabled = true; areas = WatchAreaPolicy.select(samples, now: Date())
-        guard !areas.isEmpty else { register(); return }
-        let centre = UNUserNotificationCenter.current()
-        let allowed = (try? await centre.requestAuthorization(options: [.alert, .sound])) ?? false
-        guard enabled, ticket == generation else { return }
-        notificationAllowed = allowed
-        register()
+    func startForeground(samples: [WatchArea], simulated: Bool) {
+        stop(); enabled = true; self.simulated = simulated
+        areas = WatchAreaPolicy.select(samples, now: Date()); register()
         expiryTask = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(60)); try Task.checkCancellation() } catch { return }
                 guard let self, self.enabled else { return }
-                self.areas = self.areas.filter { $0.isUsable(at: Date()) }; self.register()
+                self.areas = self.areas.filter { $0.isUsable(at: Date()) }
+                if let entry = self.entry, !self.areas.contains(where: { $0.id == entry.id }) { self.clearEntry() }
+                self.register()
             }
         }
+    }
+    func requestNotifications() async {
+        guard enabled, !simulated else { return }
+        let ticket = generation
+        let centre = UNUserNotificationCenter.current()
+        let allowed = (try? await centre.requestAuthorization(options: [.alert, .sound])) ?? false
+        guard enabled, ticket == generation else { return }
+        notificationAllowed = allowed
     }
     func replace(samples: [WatchArea]) {
         guard enabled else { return }
         areas = WatchAreaPolicy.select(samples, now: Date()); register()
     }
     func requestBackgroundAwareness() {
-        guard enabled else { return }
+        guard enabled, !simulated else { return }
         manager.requestAlwaysAuthorization()
     }
     func evaluate(_ location: CLLocation, source: String = "Foreground location") {
@@ -52,7 +59,8 @@ final class GeofenceService: NSObject, CLLocationManagerDelegate {
         guard let area = gate.update(areas: areas, latitude: location.coordinate.latitude, longitude: location.coordinate.longitude, accuracy: location.horizontalAccuracy, now: Date()) else { return }
         entry = area; entryTime = Date()
         message = "Entered a sampled monitoring area · \(source)."
-        guard notificationAllowed else { return }
+        onEntry?(area)
+        guard notificationAllowed, !simulated else { return }
         let content = UNMutableNotificationContent()
         content.title = "Air-quality awareness"
         content.body = "You are inside a sampled AQI \(area.aqi)/5 area. Open BreatheRoute to review data and compare your remaining walk. The circle is approximate."
@@ -63,7 +71,7 @@ final class GeofenceService: NSObject, CLLocationManagerDelegate {
     func stop() {
         generation += 1
         enabled = false; expiryTask?.cancel(); expiryTask = nil; removeRegions()
-        areas = []; gate = AreaEntryGate(); clearEntry(); lastLocation = nil
+        areas = []; gate = AreaEntryGate(); clearEntry(); lastLocation = nil; notificationAllowed = false; simulated = false
         message = "Area alerts are off."
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [prefix + "entry"])
     }
@@ -74,6 +82,7 @@ final class GeofenceService: NSObject, CLLocationManagerDelegate {
         removeRegions()
         guard enabled else { return }
         guard !areas.isEmpty else { message = "No fresh AQI 3–5 sample areas to monitor. Missing or low-category readings do not create watch areas."; return }
+        if simulated { message = "\(areas.count) sample areas · area awareness active during this preview."; return }
         if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
             message = "Location access is unavailable. Area entries cannot be verified; the route and sample details remain available."
             return
@@ -94,13 +103,13 @@ final class GeofenceService: NSObject, CLLocationManagerDelegate {
     }
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { if enabled { register() } }
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        guard enabled, areas.contains(where: { prefix + $0.id == region.identifier && $0.isUsable(at: Date()) }) else { return }
+        guard enabled, !simulated, areas.contains(where: { prefix + $0.id == region.identifier && $0.isUsable(at: Date()) }) else { return }
         if let lastLocation, abs(lastLocation.timestamp.timeIntervalSinceNow) < 60 {
             evaluate(lastLocation, source: "Core Location region event")
         } else { manager.requestLocation() }
     }
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let latest = locations.last { evaluate(latest, source: "Core Location region event") }
+        if !simulated, let latest = locations.last { evaluate(latest, source: "Core Location region event") }
     }
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         if enabled { message = "Region event could not be verified with a recent accurate location. Foreground checks continue." }

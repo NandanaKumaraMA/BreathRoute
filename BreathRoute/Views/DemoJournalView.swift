@@ -18,11 +18,11 @@ struct DemoJournalView: View {
     var body: some View {
         NavigationStack {
             Page {
-                PageHeader(title: "A month\nin motion.", subtitle: "Demo journal", symbol: "sparkles")
+                PageHeader(title: "A month\nin motion.", subtitle: "Sample journal", symbol: "sparkles")
                 Surface {
-                    StatusPill(title: "Synthetic examples · Read only", symbol: "testtube.2")
-                    Text("Explore a fictional walker's 30-day journal.").font(.headline).foregroundStyle(Palette.ink)
-                    Text("30 walks and 45 check-ins show how history and insights work. Every distance, exposure estimate and symptom here is invented.")
+                    StatusPill(title: "Sample data · Read only", symbol: "book.closed")
+                    Text("Explore 30 days of walks and check-ins.").font(.headline).foregroundStyle(Palette.ink)
+                    Text("Browse sample records to explore your walking history and insights.")
                         .font(.subheadline).foregroundStyle(Palette.muted)
                     InfoNote(symbol: "person.crop.circle.badge.checkmark", text: "Your own journal and activity totals are unchanged.")
                     Text(cloudDate.map { "Cloud examples loaded · \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Viewing bundled example data")
@@ -58,9 +58,9 @@ struct DemoJournalView: View {
                 } else {
                     ForEach(window.notes) { note in noteRow(note) }
                 }
-                InfoNote(text: "These examples demonstrate app behaviour. They are not live air-quality readings, medical findings or evidence that pollution caused symptoms.")
+                InfoNote(text: "Sample records for exploring the journal. They are not measured air or health data.")
             }
-            .navigationTitle("Demo journal").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Sample journal").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.task(id: loadRequest) { if loadRequest > 0 { await loadCloud() } }
     }
@@ -72,7 +72,7 @@ struct DemoJournalView: View {
         }.accessibilityIdentifier("demo-date-filter")
     }
     private var sectionPicker: some View {
-        Picker("Demo section", selection: $section) {
+        Picker("Journal section", selection: $section) {
             ForEach(["Insights", "Walks", "Notes"], id: \.self) { Text($0) }
         }.accessibilityIdentifier("demo-section-filter")
     }
@@ -100,7 +100,7 @@ struct DemoJournalView: View {
     }
     @ViewBuilder private var insights: some View {
         Surface {
-            SectionHeading(title: "Walking rhythm", detail: "Fictional distances")
+            SectionHeading(title: "Walking rhythm", detail: "Distance over time")
             if typeSize.isAccessibilitySize {
                 ForEach(window.trips) { trip in
                     VStack(alignment: .leading, spacing: 6) {
@@ -118,7 +118,7 @@ struct DemoJournalView: View {
             }
         }
         Surface {
-            SectionHeading(title: "Check-in patterns", detail: "Fictional notes")
+            SectionHeading(title: "Check-in patterns", detail: "Check-in trends")
             if typeSize.isAccessibilitySize {
                 ForEach(CloudDemoFixtures.symptomKinds, id: \.self) { kind in
                     Text("\(kind): \(window.notes.filter { $0.kind == kind }.count) example check-ins")
@@ -130,7 +130,7 @@ struct DemoJournalView: View {
                         .foregroundStyle(Palette.forest)
                 }.chartXAxisLabel("Number of check-ins").frame(height: 220)
             }
-            InfoNote(text: "Severity examples range from 1 to 5. These counts describe this fictional dataset only.")
+            InfoNote(text: "Severity ranges from 1 to 5. These counts describe the sample journal.")
         }
         Surface {
             SectionHeading(title: "Exposure coverage")
@@ -182,15 +182,15 @@ private struct DemoWalkDetail: View {
     let notes: [SymptomEntry]
     var body: some View {
         Page {
-            PageHeader(title: demoDestination(trip), subtitle: "Synthetic example walk", symbol: "figure.walk")
+            PageHeader(title: demoDestination(trip), subtitle: "Sample walk", symbol: "figure.walk")
             Surface {
-                StatusPill(title: "Read-only fictional record", symbol: "testtube.2")
+                StatusPill(title: "Sample record · Read only", symbol: "book.closed")
                 Text(trip.date.formatted(date: .complete, time: .shortened)).font(.subheadline).foregroundStyle(Palette.muted)
                 if typeSize.isAccessibilitySize { VStack(alignment: .leading, spacing: 18) { metrics } }
                 else { HStack { metrics } }
-                Metric(title: "Synthetic exposure · covered portion", value: doseText(trip.dose))
+                Metric(title: "Estimated exposure · covered portion", value: doseText(trip.dose))
                 Text(String(format: "%.0f%% coverage · %@", trip.coverage * 100, trip.complete ? "Finished" : "Stopped early")).font(.subheadline).foregroundStyle(Palette.ink)
-                InfoNote(text: trip.coverage == 0 ? "No exposure value is invented for missing coverage." : "Exposure is a fictional estimate for the covered portion, using a modelled breathing volume. It is not a sensor measurement.")
+                InfoNote(text: trip.coverage == 0 ? "No exposure value is invented for missing coverage." : "Sample exposure estimate for the covered portion. This is not a sensor measurement.")
                 if let ventilation = trip.ventilation { Text(String(format: "Modelled breathing volume: %.0f L/min", ventilation * 1000)).font(.caption).foregroundStyle(Palette.muted) }
             }
             SectionHeading(title: "Linked example check-ins")
@@ -210,7 +210,7 @@ private struct DemoNoteLabel: View {
             Text(note.kind).font(.headline).foregroundStyle(Palette.ink)
             Text(note.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(Palette.muted)
             Label("Severity \(note.severity) of 5", systemImage: "heart.text.clipboard").font(.subheadline).foregroundStyle(Palette.forest)
-            Text(note.notes.replacingOccurrences(of: "[SYNTHETIC DEMO] ", with: "")).font(.subheadline).foregroundStyle(Palette.muted)
+            Text(note.notes.replacingOccurrences(of: "[SYNTHETIC DEMO] ", with: "").replacingOccurrences(of: "Fictional ", with: "")).font(.subheadline).foregroundStyle(Palette.muted)
         }
     }
 }

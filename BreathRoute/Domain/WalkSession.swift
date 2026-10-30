@@ -108,7 +108,13 @@ struct ActiveWalkCheckpoint: Codable, Sendable {
     let ventilation: Double
     let activity: WalkActivitySummary?
     let recovered: Bool
+    var previewMetres: Double? = nil
+    var previewMovingSeconds: Double? = nil
+    var routeStartRecordedMetres: Double? = nil
     var isValid: Bool {
+        (previewMetres.map { $0.isFinite && $0 >= 0 } ?? true) &&
+        (previewMovingSeconds.map { $0.isFinite && $0 >= 0 } ?? true) &&
+        (routeStartRecordedMetres.map { $0.isFinite && $0 >= 0 && $0 <= recorder.metres } ?? true) &&
         version == 1 && sessionID != Self.storageID && startedAt.timeIntervalSince1970.isFinite && savedAt.timeIntervalSince1970.isFinite && savedAt >= startedAt &&
         ventilation.isFinite && ventilation > 0 && route.isValid && recorder.isValid &&
         recorder.recordedSeconds <= savedAt.timeIntervalSince(startedAt) + 0.001 &&

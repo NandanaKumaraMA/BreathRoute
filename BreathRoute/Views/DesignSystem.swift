@@ -212,3 +212,15 @@ func doseText(_ value: Double?) -> String {
     if value > 0 && value < 0.01 { return "<0.01 µg" }
     return String(format: value > 0 && value < 1 ? "%.2f µg" : "%.1f µg", value)
 }
+
+// Older preview records keep their stored provenance; only their visible titles are tidied.
+extension TripEntry {
+    var displayDestination: String {
+        guard demo else { return destination }
+        var title = destination
+        for prefix in ["Demo · ", "[SYNTHETIC DEMO] "] where title.hasPrefix(prefix) {
+            title.removeFirst(prefix.count)
+        }
+        return title
+    }
+}

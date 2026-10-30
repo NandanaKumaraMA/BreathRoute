@@ -10,6 +10,12 @@
     <string>$(BREATHE_ORS_KEY)</string>
     <key>CFBundleURLTypes</key>
     <array><dict><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleURLSchemes</key><array><string>$(GOOGLE_REVERSED_CLIENT_ID)</string></array></dict></array>
+    <key>PUSH_BACKEND</key>
+    <string>$(BREATHE_PUSH_BACKEND)</string>
+    <key>FirebaseMessagingAutoInitEnabled</key>
+    <false/>
+    <key>FirebaseMessagingInstallationIdEnabled</key>
+    <false/>
     <key>FirebaseAppDelegateProxyEnabled</key>
     <false/>
 </dict>

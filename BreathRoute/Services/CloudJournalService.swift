@@ -25,6 +25,7 @@ enum CloudDemoReadError: String, LocalizedError {
 final class CloudJournalService {
     private(set) var working = false
     var message: String?
+    var onLocalRevision: ((String) -> Void)?
     @ObservationIgnored private var database: Firestore?
     private static var configuredDatabase: Firestore?
     private var generation = 0
@@ -64,6 +65,7 @@ final class CloudJournalService {
             let data = try merged.snapshot.encoded()
             guard let payload = String(data: data, encoding: .utf8) else { throw JournalSyncError.invalid }
             let nextRevision = UUID().uuidString
+            onLocalRevision?(nextRevision)
             do {
                 _ = try await database.runTransaction { transaction, errorPointer -> Any? in
                     do {
@@ -145,13 +147,13 @@ final class CloudJournalService {
         return try JSONSerialization.data(withJSONObject: fields)
     }
 
-    private static func connection(for identity: AccountIdentity) throws -> Firestore {
+    static func connection(for identity: AccountIdentity) throws -> Firestore {
         guard let app = FirebaseBootstrap.app, app.options.projectID == identity.projectID,
               FirebaseBootstrap.environment == identity.environment,
               Auth.auth(app: app).currentUser?.uid == identity.userID else { throw JournalSyncError.wrongAccount }
         if let configuredDatabase { return configuredDatabase }
         let db = Firestore.firestore(app: app), settings = db.settings
-        // Configure the shared SDK instance once, before sync or demonstration reads.
+        // Configure the shared SDK instance once, before journal reads or private notification registration.
         settings.cacheSettings = MemoryCacheSettings()
         #if DEBUG
         if identity.environment == .emulator { settings.host = "127.0.0.1:8080"; settings.isSSLEnabled = false }

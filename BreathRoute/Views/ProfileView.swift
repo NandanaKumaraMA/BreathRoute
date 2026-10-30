@@ -19,6 +19,7 @@ struct ProfileView: View {
             AccountCard(model: model) { showAccount = true }
             if model.account.identity != nil { CloudJournalCard(model: model) }
             remindersAndPrivacyCard
+            NotificationsCard(service: model.notifications, remote: model.remotePush)
             healthAndMotionDisclosure
             methodologyCard
         }

@@ -32,17 +32,30 @@ struct ContentView: View {
         .id(model.accountScopeKey)
         .task {
             model.startAccountObservation()
+            model.setNotificationAccess(phase == .active && (!biometricLock || unlocked))
             #if DEBUG
             Task { await CloudJournalQA.runIfRequested(model: model) }
             Task { await WalkingPreviewQA.runIfRequested() }
+            Task { await IntegratedWalkQA.runIfRequested() }
+            Task { await RemotePushQA.runIfRequested() }
+            Task { await FreeNotificationQA.runIfRequested() }
+            Task { await FreeNotificationQA.runEmulatorIfRequested() }
             Task { await LiveJournalQA.runIfRequested(model: model) }
             Task { await StructuredCloudQA.runIfRequested(model: model) }
             #endif
         }
         .tint(Palette.forest)
         .background(Palette.canvas)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if model.notifications.hasUpdate && onboarded && (!biometricLock || unlocked) {
+                CloudJournalUpdateBanner(review: { model.section = .journal }, dismiss: { model.notifications.dismissUpdate() })
+            }
+        }
+        .onChange(of: unlocked) { _, _ in model.setNotificationAccess(phase == .active && (!biometricLock || unlocked)) }
+        .onChange(of: biometricLock) { _, _ in model.setNotificationAccess(phase == .active && (!biometricLock || unlocked)) }
         .onChange(of: phase) { _, next in
             model.setForeground(next == .active)
+            model.setNotificationAccess(next == .active && (!biometricLock || unlocked))
             if next == .background { unlocked = false; model.voice.stop() }
         }
         .alert("Something needs attention", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {

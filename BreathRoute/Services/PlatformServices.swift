@@ -131,7 +131,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func pauseSimulation() {
         simulationGeneration += 1; simulationTask?.cancel(); simulationTask = nil
         preview?.pause(); speedMetersPerSecond = 0
-        message = preview?.state == .completed ? "Synthetic preview reached the destination." : "Synthetic preview paused."
+        message = preview?.state == .completed ? "Destination reached." : "Walk preview paused."
     }
     func stopSimulation() {
         simulationGeneration += 1; simulationTask?.cancel(); simulationTask = nil
@@ -148,7 +148,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         let fix = CLLocation(coordinate: coordinate, altitude: 0, horizontalAccuracy: 4, verticalAccuracy: -1,
                              course: headingDegrees, speed: speed, timestamp: Date())
         location = fix
-        message = preview.state == .completed ? "Synthetic preview reached the destination." : "Synthetic simulator location."
+        message = preview.state == .completed ? "Destination reached." : "Route preview location."
         onUpdate?(fix)
     }
 

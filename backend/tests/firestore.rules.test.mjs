@@ -129,3 +129,31 @@ test('invalid schema, extra fields, forged timestamp, invalid revision and overs
   await assertSucceeds(setDoc(reference, fixed));
   await assertFails(setDoc(reference, { ...fixed, updatedAt: serverTimestamp() }));
 });
+
+test('delivery tokens and rate limits are never readable or writable through client SDKs', async () => {
+  for (const context of [environment.unauthenticatedContext(), environment.authenticatedContext('owner-a'), environment.authenticatedContext('owner-b')]) {
+    for (const collection of ['pushDevices', 'pushDeliveryState', '_pushTestDeliveries']) {
+      const reference = doc(context.firestore(), collection, 'opaque-test-id');
+      await assertFails(getDoc(reference));
+      await assertFails(setDoc(reference, {uid:'owner-a',token:'not-a-real-device-token'}));
+      await assertFails(deleteDoc(reference));
+    }
+  }
+});
+
+test('Spark device registration is private, owner-bound and independent of journal-sync consent', async () => {
+  const uid='spark-owner', id=crypto.randomUUID(), db=environment.authenticatedContext(uid).firestore();
+  const reference=doc(db,`users/${uid}/pushDevices/${id}`);
+  const record=()=>({schemaVersion:1,uid,installationID:id,token:'placeholder-not-a-real-fcm-token',enabled:true,updatedAt:serverTimestamp()});
+  await assertSucceeds(setDoc(reference,record()));
+  await assertSucceeds(getDoc(reference));
+  await assertSucceeds(setDoc(reference,{...record(),token:'rotated-placeholder-fcm-token'}));
+  for(const context of [environment.unauthenticatedContext(),environment.authenticatedContext('someone-else')]) {
+    const foreign=doc(context.firestore(),`users/${uid}/pushDevices/${id}`);
+    await assertFails(getDoc(foreign));await assertFails(setDoc(foreign,record()));await assertFails(deleteDoc(foreign));
+  }
+  for(const extra of [{uid:'another-owner'},{token:true},{token:'short'},{installationID:crypto.randomUUID()},{updatedAt:Timestamp.fromMillis(0)},{latitude:6.9}]) {
+    await assertFails(setDoc(reference,{...record(),...extra}));
+  }
+  await assertSucceeds(deleteDoc(reference));
+});

@@ -2,6 +2,8 @@
 BREATHE_OPENWEATHER_KEY =
 BREATHE_GEOAPIFY_KEY =
 BREATHE_ORS_KEY =
+// Spark-compatible registration; optional functions sender requires Blaze.
+BREATHE_PUSH_BACKEND = firestore
 #include? "Config.local.xcconfig"
 
 #include "GoogleSignIn.xcconfig"

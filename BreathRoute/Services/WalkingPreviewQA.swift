@@ -21,7 +21,7 @@ import CoreLocation
             model.loadDemo()
             guard let route = model.selected else { throw QAError.failed("example route missing") }
             model.startForCurrentEnvironment(route)
-            try check(model.activeRoute?.demo == true && model.location.isSimulatingRun, "example starts moving automatically and stays labelled synthetic")
+            try check(model.activeRoute?.demo == true && model.location.isSimulatingRun && model.followCamera, "example starts moving automatically with camera follow on and stays labelled synthetic")
             guard let first = model.location.location else { throw QAError.failed("preview position missing") }
             try await Task.sleep(for: .seconds(2))
             try check(model.location.location.map { $0.distance(from: first) > 1 } == true && model.trackedMetres > 1, "location and recorded path advance along the route")
@@ -47,8 +47,8 @@ import CoreLocation
                 seconds: route.seconds, estimate: route.estimate, demo: false, airSamples: route.airSamples, source: "QA provider source")
             model.startForCurrentEnvironment(provider)
             try await Task.sleep(for: .seconds(1))
-            try check(model.activeRoute?.demo == true && model.activeRoute?.source == provider.source && model.location.isSimulatingRun,
-                      "provider route can be previewed while preserving attribution and synthetic activity labelling")
+            try check(model.activeRoute?.demo == true && model.activeRoute?.source == provider.source && model.location.isSimulatingRun && model.followCamera,
+                      "provider preview starts with camera follow and preserves attribution and synthetic activity labelling")
             try check(model.air == nil && model.previewAirMessage != nil, "failed provider request keeps missing air data explicit")
             airAvailable = true; await model.refreshPreviewAir()
             try await Task.sleep(for: .seconds(1))
